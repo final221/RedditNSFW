@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.25
+// @version      1.26
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -841,12 +841,51 @@
             Math.round(sourceRect?.height || 0)
         );
 
+        const collectHeightCaps = () => {
+            const caps = [];
+            const tryAdd = (raw) => {
+                if (raw == null || raw === '' || raw === 'none') return;
+                const match = String(raw).match(/([0-9]+(?:\.[0-9]+)?)px/i);
+                if (!match) return;
+                const value = Math.round(Number(match[1]));
+                if (Number.isFinite(value) && value > 0) {
+                    caps.push(value);
+                }
+            };
+
+            if (sourceImg instanceof Element) {
+                tryAdd(sourceImg.style.maxHeight);
+                tryAdd(getComputedStyle(sourceImg).maxHeight);
+            }
+
+            let current = sourceImg instanceof Element ? sourceImg.parentElement : null;
+            while (current instanceof Element) {
+                tryAdd(current.style.maxHeight);
+                tryAdd(getComputedStyle(current).maxHeight);
+                if (current === blurContainer || current === host) break;
+                current = current.parentElement;
+            }
+
+            if (blurContainer instanceof Element) {
+                tryAdd(blurContainer.style.maxHeight);
+                tryAdd(getComputedStyle(blurContainer).maxHeight);
+            }
+
+            return caps;
+        };
+
         let height = measuredHeight;
         if (!height && width > 0 && naturalWidth > 0 && naturalHeight > 0) {
             height = Math.round(width * naturalHeight / naturalWidth);
         }
         if (!height && naturalHeight > 0) {
             height = naturalHeight;
+        }
+
+        const heightCaps = collectHeightCaps();
+        const heightCap = heightCaps.length ? Math.min(...heightCaps) : 0;
+        if (heightCap > 0 && height > heightCap) {
+            height = heightCap;
         }
 
         return {
@@ -856,7 +895,8 @@
             naturalHeight,
             hostHeight,
             seededHostHeight: hostHeight === 0 && height > 0,
-            aspectRatio: naturalWidth > 0 && naturalHeight > 0 ? `${naturalWidth} / ${naturalHeight}` : null
+            aspectRatio: naturalWidth > 0 && naturalHeight > 0 ? `${naturalWidth} / ${naturalHeight}` : null,
+            heightCap: heightCap || null
         };
     }
 
@@ -1591,6 +1631,8 @@
         start();
     }
 })();
+
+
 
 
 
