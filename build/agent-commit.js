@@ -32,11 +32,39 @@ const listRemotes = () => {
         .filter(Boolean);
 };
 
+const getRemoteUrl = (remoteName) => {
+    const result = runCapture('git', ['config', '--get', `remote.${remoteName}.url`]);
+    if (result.status !== 0) return null;
+    const value = (result.stdout || '').toString().trim();
+    return value || null;
+};
+
+const listConfiguredRemoteNames = () => {
+    const result = runCapture('git', ['config', '--name-only', '--get-regexp', '^remote\\..*\\.url$']);
+    if (result.status !== 0) return [];
+    return (result.stdout || '')
+        .toString()
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line) => {
+            const match = line.match(/^remote\.([^.]+)\.url$/);
+            return match ? match[1] : null;
+        })
+        .filter(Boolean);
+};
+
 const getPushRemote = () => {
+    if (getRemoteUrl('origin')) return 'origin';
     const remotes = listRemotes();
-    if (remotes.length === 0) return null;
     if (remotes.includes('origin')) return 'origin';
-    return remotes[0];
+    if (remotes.length > 0) return remotes[0];
+
+    const configuredRemotes = listConfiguredRemoteNames();
+    if (configuredRemotes.includes('origin')) return 'origin';
+    if (configuredRemotes.length > 0) return configuredRemotes[0];
+
+    return null;
 };
 
 const getCurrentBranch = () => {
