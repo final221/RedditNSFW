@@ -1,6 +1,6 @@
 # Architecture
 
-RedNSFW keeps two separate browser-side strategies because they solve different failure modes on Reddit.
+RedditNSFW keeps two separate browser-side strategies because they solve different failure modes on Reddit.
 
 ## Strategy Split
 

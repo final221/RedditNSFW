@@ -1,4 +1,4 @@
-# RedNSFW Agent Workflow
+# RedditNSFW Agent Workflow
 
 ## Single entrypoint
 - This file is the authoritative agent workflow for this repo.

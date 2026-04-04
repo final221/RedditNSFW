@@ -1,8 +1,8 @@
-# RedNSFW
+# RedditNSFW
 
 Current: **0.1.0**
 
-RedNSFW is a Reddit/Tampermonkey userscript repo focused on two related but separate problems on modern Reddit surfaces:
+RedditNSFW is a Reddit/Tampermonkey userscript repo focused on two related but separate problems on modern Reddit surfaces:
 - direct NSFW blur removal when Reddit still renders the media container correctly
 - external media reconstruction when Reddit's own display layer fails or degrades
 
@@ -33,5 +33,5 @@ The maintained script entries live under `src/userscripts/`.
 
 ## Hosting
 - GitHub account: `final221`
-- Default repo target: `git@github.com:final221/RedNSFW.git`
+- Default repo target: `git@github.com:final221/RedditNSFW.git`
 - Default branch: `main`

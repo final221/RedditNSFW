@@ -1,7 +1,7 @@
 const SCRIPT_CATALOG = {
   project: {
-    name: "RedNSFW",
-    repo: "final221/RedNSFW",
+    name: "RedditNSFW",
+    repo: "final221/RedditNSFW",
     runtime: "Tampermonkey on reddit.com and sh.reddit.com",
     maintainedEntries: "src/userscripts/",
     intakeReferences: ["Unblur.txt", "image recreation.txt"]

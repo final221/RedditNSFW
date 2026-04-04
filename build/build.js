@@ -6,7 +6,7 @@ const ROOT = path.join(__dirname, '..');
 const PACKAGE_JSON_PATH = path.join(ROOT, 'package.json');
 const PACKAGE_LOCK_PATH = path.join(ROOT, 'package-lock.json');
 
-// RedNSFW release metadata paths.
+// RedditNSFW release metadata paths.
 const BUILD_CONFIG = {
     defaultVersion: '0.1.0',
     versionFile: path.join(__dirname, 'version.txt'),
