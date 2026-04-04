@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.22
+// @version      1.23
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -219,6 +219,17 @@
         }
     }
 
+    function isPreviewImageUrl(url) {
+        if (!url || typeof url !== 'string') return false;
+
+        try {
+            const u = new URL(decodeHtml(url), location.origin);
+            return u.hostname === 'preview.redd.it' || u.hostname === 'external-preview.redd.it';
+        } catch {
+            return false;
+        }
+    }
+
     function normalizePostHref(postHref) {
         if (!postHref || typeof postHref !== 'string') return null;
 
@@ -297,16 +308,23 @@
         }
 
         for (const raw of candidates) {
-            const direct = previewToDirect(raw);
-            if (direct) {
-                return direct;
+            const decoded = decodeUrl(raw);
+            if (isPreviewImageUrl(decoded)) {
+                return decoded;
+            }
+        }
+
+        if (preview) {
+            const decodedPreview = decodeHtml(preview);
+            if (isPreviewImageUrl(decodedPreview)) {
+                return decodedPreview;
             }
         }
 
         for (const raw of candidates) {
-            const decoded = decodeUrl(raw);
-            if (isExternalPreviewUrl(decoded)) {
-                return decoded;
+            const direct = previewToDirect(raw);
+            if (direct) {
+                return direct;
             }
         }
 
@@ -1382,7 +1400,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.22',
+            version: '1.23',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });

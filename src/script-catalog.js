@@ -26,7 +26,7 @@ const SCRIPT_CATALOG = {
       file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Imported from image recreation.txt",
       role: "Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.",
-      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank capped Reddit video guesses while preferring the declared Reddit source ahead of lower guessed variants, auto-build a replacement layer only when native media still fails, yield back when Reddit native media resolves later, recover when Reddit rerenders away a built fallback layer, and keep an exportable field-debug trace for failed live cases.",
+      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank capped Reddit video guesses while preferring the declared Reddit source ahead of lower guessed variants, prefer resolved preview/media image URLs before fabricating direct `i.redd.it` links, auto-build a replacement layer only when native media still fails, yield back when Reddit native media resolves later, recover when Reddit rerenders away a built fallback layer, and keep an exportable field-debug trace for failed live cases.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Local DEBUG constant gates console logging",
@@ -45,6 +45,7 @@ const SCRIPT_CATALOG = {
 module.exports = {
   SCRIPT_CATALOG
 };
+
 
 
 

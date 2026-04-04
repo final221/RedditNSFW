@@ -25,7 +25,7 @@
 - Main failure points:
 - post JSON fetch failure
 - media URL extraction failure or low-quality source ranking, especially when a lower guessed video variant wins before the declared Reddit source
-- incorrect rewriting of `external-preview.redd.it` URLs into invalid `i.redd.it` URLs
+- incorrect rewriting of preview-based gallery image URLs into invalid or non-visible `i.redd.it` URLs
 - preload failure
 - direct native unblur flipping the blur state/property without Reddit actually revealing usable media
 - video or gif-like posts resolving to the wrong media type or URL, comment permalinks failing to normalize back to a post URL, gallery posts collapsing to a single item, or fallback videos becoming a dead autoplay-only layer
@@ -40,3 +40,4 @@
 - For disappearing fallback cases, check whether the trace contains `fallback-layer-lost`.
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
+
