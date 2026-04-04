@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.21
+// @version      1.22
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -606,12 +606,34 @@
         }
     }
 
+    function hostHasCustomLayer(host) {
+        if (!(host instanceof Element)) return false;
+        return Boolean(host.querySelector(':scope > .tm-unblur-media-layer, :scope > .tm-nsfw-overlay'));
+    }
+
     function removeCustomLayer(host) {
         if (!(host instanceof Element)) return;
         host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
         host.querySelectorAll(':scope > .tm-nsfw-overlay').forEach(el => el.remove());
         delete host.dataset.tmOverlayBuilt;
         delete host.dataset.tmMediaBuilt;
+    }
+
+    function recoverMissingCustomLayer(host, blurContainer, postHref, img) {
+        if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
+        if (host.dataset.tmMediaBuilt !== '1') return false;
+        if (hostHasCustomLayer(host)) return false;
+        if (hasNativeResolvedMedia(host, blurContainer)) return false;
+
+        recordDebug('fallback-layer-lost', {
+            normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+            currentUrl: location.href
+        });
+
+        delete host.dataset.tmMediaBuilt;
+        delete host.dataset.tmOverlayBuilt;
+        scheduleFallbackBuild(blurContainer, img, postHref);
+        return true;
     }
 
     function hasNativeRevealControl(host) {
@@ -1311,6 +1333,10 @@
             normalizedPostUrl: normalizePostHref(postHref) || postHref || null
         });
 
+        if (recoverMissingCustomLayer(host, el, postHref, img)) {
+            return;
+        }
+
         scheduleFallbackBuild(el, img, postHref);
     }
 
@@ -1342,6 +1368,12 @@
                     if (node.matches?.('shreddit-blurred-container[reason]')) {
                         processBlurredContainer(node);
                     }
+
+                    const containingBlur = node.closest?.('shreddit-blurred-container[reason]');
+                    if (containingBlur instanceof Element) {
+                        processBlurredContainer(containingBlur);
+                    }
+
                     scan(node);
                 }
             }
@@ -1350,7 +1382,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.21',
+            version: '1.22',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });
@@ -1372,6 +1404,10 @@
                 scan(document);
             }
         }, 500);
+
+        setInterval(() => {
+            document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').forEach(processBlurredContainer);
+        }, 1500);
     }
 
     document.addEventListener('keydown', (event) => {
