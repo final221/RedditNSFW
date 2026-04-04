@@ -6,20 +6,18 @@ const ROOT = path.join(__dirname, '..');
 const commitMessage = process.env.COMMIT_MSG || process.env.COMMIT_MESSAGE;
 
 const run = (command, args, opts = {}) => {
-    const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'cmd.exe' : command;
-    const cmdArgs = isWin ? ['/c', command, ...args] : args;
-    const result = spawnSync(cmd, cmdArgs, { cwd: ROOT, stdio: 'inherit', ...opts });
+    const result = spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', shell: false, ...opts });
     if (result.status !== 0) {
         process.exit(result.status || 1);
     }
 };
 
+const runStatus = (command, args, opts = {}) => {
+    return spawnSync(command, args, { cwd: ROOT, stdio: 'inherit', shell: false, ...opts });
+};
+
 const runCapture = (command, args) => {
-    const isWin = process.platform === 'win32';
-    const cmd = isWin ? 'cmd.exe' : command;
-    const cmdArgs = isWin ? ['/c', command, ...args] : args;
-    return spawnSync(cmd, cmdArgs, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+    return spawnSync(command, args, { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], shell: false });
 };
 
 const listRemotes = () => {
@@ -81,24 +79,28 @@ const hasUpstream = () => {
 };
 
 const pushWithTrackingIfNeeded = () => {
-    const remote = getPushRemote();
-    if (!remote) {
-        console.warn('[agent:commit] No git remote configured; commit created locally only.');
+    const directPush = runStatus('git', ['push']);
+    if (directPush.status === 0) {
         return;
     }
 
-    if (hasUpstream()) {
-        run('git', ['push']);
+    const remote = getPushRemote();
+    if (!remote) {
+        console.warn('[agent:commit] Push failed and no git remote could be resolved; commit created locally only.');
         return;
     }
 
     const branch = getCurrentBranch();
     if (!branch) {
-        run('git', ['push']);
+        console.warn('[agent:commit] Push failed and current branch could not be resolved; commit created locally only.');
         return;
     }
 
-    console.warn(`[agent:commit] No upstream for ${branch}; pushing with --set-upstream ${remote} ${branch}.`);
+    if (hasUpstream()) {
+        process.exit(directPush.status || 1);
+    }
+
+    console.warn(`[agent:commit] Direct push failed; pushing with --set-upstream ${remote} ${branch}.`);
     run('git', ['push', '--set-upstream', remote, branch]);
 };
 
