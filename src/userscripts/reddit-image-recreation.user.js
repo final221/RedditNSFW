@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.16
+// @version      1.17
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -16,11 +16,69 @@
         fallbackDelayMs: 1200,
         preferNativeReveal: true,
         useClickFallback: true,
-        videoRecoveryTimeoutMs: 1800
+        videoRecoveryTimeoutMs: 1800,
+        debugLogMaxEntries: 400
     };
     let lastUrl = location.href;
     const mediaCache = new Map();
     const fallbackTimers = new WeakMap();
+    const debugEntries = [];
+
+    function toDebugString(details) {
+        if (details == null) return '';
+        if (typeof details === 'string') return details;
+
+        try {
+            return JSON.stringify(details, null, 2);
+        } catch (err) {
+            return String(err?.message || details);
+        }
+    }
+
+    function recordDebug(event, details) {
+        const timestamp = new Date().toISOString();
+        const parts = [`[${timestamp}] ${event}`];
+        const detailText = toDebugString(details);
+        if (detailText) {
+            parts.push(detailText);
+        }
+
+        debugEntries.push(parts.join('\n'));
+        if (debugEntries.length > CONFIG.debugLogMaxEntries) {
+            debugEntries.splice(0, debugEntries.length - CONFIG.debugLogMaxEntries);
+        }
+
+        log(event, details);
+    }
+
+    function exportDebugLog() {
+        recordDebug('export-debug-log', {
+            page: location.href,
+            entries: debugEntries.length
+        });
+
+        const lines = [
+            'Reddit Image Recreation Debug Log',
+            `Generated: ${new Date().toISOString()}`,
+            `Page: ${location.href}`,
+            `User agent: ${navigator.userAgent}`,
+            '',
+            ...debugEntries
+        ];
+        const blob = new Blob([lines.join('\n\n')], { type: 'text/plain;charset=utf-8' });
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = 'reddit-image-recreation-log.txt';
+        anchor.style.display = 'none';
+        (document.body || document.documentElement).appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    }
+
+    window.redditImageRecreationExportLog = exportDebugLog;
+
 
     function log(...args) {
         if (DEBUG) console.log('[Reddit External Unblur]', ...args);
@@ -174,7 +232,8 @@
             postUrl.search = '';
             postUrl.hash = '';
             return postUrl.toString();
-        } catch {
+        } catch (err) {
+            recordDebug('normalize-post-href-failed', { postHref, error: err?.message || String(err) });
             return null;
         }
     }
@@ -184,6 +243,7 @@
             const normalizedHref = normalizePostHref(postHref) || postHref;
             const postUrl = new URL(normalizedHref, location.origin);
             const postPath = postUrl.pathname.replace(/\/+$/, '');
+            recordDebug('fetch-post-data', { inputHref: postHref, normalizedHref, postPath });
 
             if (mediaCache.has(postPath)) {
                 return mediaCache.get(postPath);
@@ -700,13 +760,32 @@
 
     async function resolvePlayableVideoSource(media) {
         const candidates = Array.isArray(media?.sources) && media.sources.length ? media.sources : [media?.src];
+        recordDebug('video-candidates', {
+            normalizedPostUrl: media?.debugPostUrl || null,
+            candidates
+        });
+
         for (const candidate of candidates) {
             if (!candidate) continue;
             const preloaded = await preloadVideo(candidate);
             if (preloaded) {
+                recordDebug('video-candidate-selected', {
+                    normalizedPostUrl: media?.debugPostUrl || null,
+                    selected: candidate
+                });
                 return candidate;
             }
+
+            recordDebug('video-candidate-failed', {
+                normalizedPostUrl: media?.debugPostUrl || null,
+                candidate
+            });
         }
+
+        recordDebug('video-candidate-none-playable', {
+            normalizedPostUrl: media?.debugPostUrl || null,
+            candidates
+        });
         return null;
     }
 
@@ -1031,28 +1110,49 @@
             button.textContent = 'Loading...';
 
             if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
+                recordDebug('fallback-suppressed', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    nativeResolved: hasNativeResolvedMedia(host, blurContainer),
+                    nativeRevealControl: hasNativeRevealControl(host)
+                });
                 overlay.remove();
                 delete host.dataset.tmOverlayBuilt;
                 return;
             }
 
             let built = false;
+            let builtMediaType = null;
 
             if (postHref) {
+                const normalizedPostUrl = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
                 const post = await fetchPostData(postHref);
                 const media = resolveMediaFromPost(post);
-                const clickHref = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
+                const clickHref = normalizedPostUrl;
+                builtMediaType = media?.type || null;
 
-                log('Resolved media:', media);
+                recordDebug('resolved-media', {
+                    normalizedPostUrl,
+                    mediaType: media?.type || null
+                });
 
                 if (media?.type === 'gallery') {
                     const firstItem = media.items?.[0];
                     const preloaded = firstItem ? await preloadImage(firstItem.src) : null;
+                    recordDebug('gallery-preload', {
+                        normalizedPostUrl,
+                        firstItem: firstItem?.src || null,
+                        ok: Boolean(preloaded)
+                    });
                     if (preloaded) {
                         built = createGalleryLayer(host, media, clickHref, img?.alt || '');
                     }
                 } else if (media?.type === 'image') {
                     const preloaded = await preloadImage(media.src);
+                    recordDebug('image-preload', {
+                        normalizedPostUrl,
+                        src: media.src,
+                        ok: Boolean(preloaded)
+                    });
                     if (preloaded) {
                         built = createSharpLayer(
                             host,
@@ -1062,17 +1162,29 @@
                         );
                     }
                 } else if (media?.type === 'video') {
-                    const playableSrc = await resolvePlayableVideoSource(media);
+                    const playableSrc = await resolvePlayableVideoSource({ ...media, debugPostUrl: normalizedPostUrl });
                     if (playableSrc) {
                         built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref);
                     }
                 }
+            } else {
+                recordDebug('missing-post-href', {
+                    currentUrl: location.href
+                });
             }
 
             if (built) {
+                recordDebug('fallback-build-success', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    mediaType: builtMediaType
+                });
                 overlay.remove();
                 delete host.dataset.tmOverlayBuilt;
             } else {
+                recordDebug('fallback-build-failed', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    buttonText: 'Try again'
+                });
                 button.disabled = false;
                 button.textContent = 'Try again';
                 overlay.style.pointerEvents = 'auto';
@@ -1154,6 +1266,11 @@
     });
 
     function start() {
+        recordDebug('script-start', {
+            version: '1.17',
+            shortcut: 'Alt+Shift+R',
+            exportFunction: 'window.redditImageRecreationExportLog()'
+        });
         scan(document);
 
         if (document.body) {
@@ -1173,6 +1290,14 @@
             }
         }, 500);
     }
+
+    document.addEventListener('keydown', (event) => {
+        const key = event.key.toLowerCase();
+        if (event.altKey && event.shiftKey && key === 'r') {
+            event.preventDefault();
+            exportDebugLog();
+        }
+    });
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', start, { once: true });

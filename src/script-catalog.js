@@ -26,15 +26,18 @@ const SCRIPT_CATALOG = {
       file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Imported from image recreation.txt",
       role: "Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.",
-      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank better Reddit video sources, and auto-build a replacement layer only when native media still fails.",
+      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank better Reddit video sources, auto-build a replacement layer only when native media still fails, and keep an exportable field-debug trace for failed live cases.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
-        "Local DEBUG constant gates logging",
+        "Local DEBUG constant gates console logging",
         "Console prefix: [Reddit External Unblur]",
+        "Alt+Shift+R downloads reddit-image-recreation-log.txt",
+        "window.redditImageRecreationExportLog() triggers the same download",
+        "Exported traces include normalized post URLs, candidate video URLs, and the selected playable source",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["DEBUG", "mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "URL change polling interval"]
+      knobs: ["DEBUG", "mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
     }
   }
 };

@@ -13,6 +13,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 - Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
 - Primary mechanisms: auto-flip Reddit's native blur state first, optionally click Reddit reveal controls, treat native galleries, revealed embeds, or actually visible media inside Reddit's blur wrapper as already-resolved, normalize comment permalinks back to their parent post URLs, then fetch post JSON, resolve image, video, or gallery media, rank better Reddit mp4 variants, preload the selected path, and auto-inject a custom fallback layer only when native handling still looks blocked; a flipped blur property alone does not suppress fallback recreation; fallback videos escalate to controls if autoplay never becomes usable
+- Observability: the script keeps a rolling in-memory debug trace and can export it as `reddit-image-recreation-log.txt`, including normalized post URLs, candidate video URLs in probe order, and the playable source that actually passed preload
 
 ## Shared assumptions
 - Runtime is Tampermonkey in the browser.

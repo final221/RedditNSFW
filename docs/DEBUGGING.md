@@ -8,8 +8,17 @@
 - `Alt+Shift+U` toggles debug logging
 
 ## External reconstruction script
-- Debug output is gated by the local `DEBUG` constant.
+- Debug output is gated by the local `DEBUG` constant for console logging.
+- A separate rolling in-memory trace is always available for live export.
 - Console prefix: `[Reddit External Unblur]`
+- Export hooks:
+- `Alt+Shift+R` downloads `reddit-image-recreation-log.txt`
+- `window.redditImageRecreationExportLog()` triggers the same download manually
+- Exported trace data includes:
+- normalized post URLs
+- candidate video URLs in probe order
+- which video URL actually passed preload
+- media-type resolution and preload outcomes
 - Main failure points:
 - post JSON fetch failure
 - media URL extraction failure or low-quality source ranking
@@ -23,6 +32,7 @@
 ## First debugging pass
 - Confirm which script line is responsible for the current issue.
 - Check whether Reddit still renders a `shreddit-blurred-container`.
+- Export the reconstruction trace before changing logic when the problem is live in the browser.
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
 

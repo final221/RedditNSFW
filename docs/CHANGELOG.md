@@ -1,4 +1,19 @@
 # Changelog
+## 0.7.0 - 2026-04-04T21:55:21.560Z
+Previous: 0.6.0
+Commit: f90d0f9
+Changes:
+- Improve recreation source quality and permalink normalization
+- Require visible native media before suppressing recreation
+- Integrate native auto-unblur into image recreation
+- Suppress recreation over native revealed embeds
+- Add gallery reconstruction support to image recreation
+- Harden image recreation media detection and video playback recovery
+- Skip recreation when Reddit gallery media is already usable
+- Prefer native Reddit media before fallback recreation
+- Add inline video recovery for image recreation
+- Fix external preview image recreation fallback
+
 ## 0.6.0 - 2026-04-04T21:42:16.310Z
 Previous: 0.5.1
 Commit: 5c2c244

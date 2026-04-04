@@ -25,7 +25,7 @@ Runtime: Tampermonkey on reddit.com and sh.reddit.com
 - File: `src/userscripts/reddit-image-recreation.user.js`
 - Source note: Imported from image recreation.txt
 - Role: Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.
-- Strategy: Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank better Reddit video sources, and auto-build a replacement layer only when native media still fails.
+- Strategy: Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank better Reddit video sources, auto-build a replacement layer only when native media still fails, and keep an exportable field-debug trace for failed live cases.
 - Hosts: `https://www.reddit.com/*`, `https://sh.reddit.com/*`
-- Knobs: `DEBUG`, `mediaCache`, `fallbackDelayMs`, `preferNativeReveal`, `useClickFallback`, `videoRecoveryTimeoutMs`, `URL change polling interval`
-- Debug: Local DEBUG constant gates logging | Console prefix: [Reddit External Unblur] | Rescans on client-side navigation | Falls back to a retry button only if automatic reconstruction fails
+- Knobs: `DEBUG`, `mediaCache`, `fallbackDelayMs`, `preferNativeReveal`, `useClickFallback`, `videoRecoveryTimeoutMs`, `debugLogMaxEntries`, `URL change polling interval`
+- Debug: Local DEBUG constant gates console logging | Console prefix: [Reddit External Unblur] | Alt+Shift+R downloads reddit-image-recreation-log.txt | window.redditImageRecreationExportLog() triggers the same download | Exported traces include normalized post URLs, candidate video URLs, and the selected playable source | Rescans on client-side navigation | Falls back to a retry button only if automatic reconstruction fails

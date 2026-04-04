@@ -12,6 +12,7 @@
 - `preferNativeReveal`: skips automatic patching when Reddit still exposes its own reveal controls
 - `useClickFallback`: clicks Reddit reveal-style controls when direct blur-state flips do not take effect
 - `videoRecoveryTimeoutMs`: promotes fallback videos to visible controls when autoplay does not become usable quickly
+- `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
 - URL polling interval: the script currently rescans on a `500ms` interval to catch client-side navigation
 
 ## Tuning rule
