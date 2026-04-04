@@ -33,7 +33,7 @@ const SCRIPT_CATALOG = {
         "Console prefix: [Reddit External Unblur]",
         "Alt+Shift+R downloads reddit-image-recreation-log.txt",
         "window.redditImageRecreationExportLog() triggers the same download",
-        "Exported traces include normalized post URLs, candidate video URLs, the selected playable source, and native handoff events",
+        "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, and native handoff events",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
@@ -45,5 +45,4 @@ const SCRIPT_CATALOG = {
 module.exports = {
   SCRIPT_CATALOG
 };
-
 

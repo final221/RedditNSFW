@@ -23,5 +23,5 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 - `src/userscripts/reddit-image-recreation.user.js` now keeps a rolling in-memory trace for live failure diagnosis.
 - `Alt+Shift+R` downloads `reddit-image-recreation-log.txt` from the current page.
 - `window.redditImageRecreationExportLog()` triggers the same download path manually.
-- The exported log is intended for copy-paste back into the repo discussion when a Reddit surface fails in the browser, including unstable cases where the fallback may build first and then yield back to native Reddit media later.
+- The exported log is intended for copy-paste back into the repo discussion when a Reddit surface fails in the browser, including unstable cases where the fallback may build first and then yield back to native Reddit media later, or no-op cases where fallback is skipped before fetch/build.
 

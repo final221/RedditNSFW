@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.19
+// @version      1.20
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -735,13 +735,21 @@
         return true;
     }
 
+    function collectFallbackBlockers(host, blurContainer) {
+        const blockers = [];
+        if (!(host instanceof Element)) blockers.push('missing-host');
+        if (!(blurContainer instanceof Element)) blockers.push('missing-blur-container');
+        if (blockers.length) return blockers;
+        if ((blurContainer.getAttribute('reason') || '').toLowerCase() !== 'nsfw') blockers.push('non-nsfw');
+        if (host.dataset.tmOverlayBuilt === '1') blockers.push('overlay-built');
+        if (host.dataset.tmMediaBuilt === '1') blockers.push('media-built');
+        if (hasNativeResolvedMedia(host, blurContainer)) blockers.push('native-resolved');
+        if (hasNativeRevealControl(host)) blockers.push('native-reveal-control');
+        return blockers;
+    }
+
     function shouldBuildFallback(host, blurContainer) {
-        if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
-        if ((blurContainer.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return false;
-        if (host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1') return false;
-        if (hasNativeResolvedMedia(host, blurContainer)) return false;
-        if (hasNativeRevealControl(host)) return false;
-        return true;
+        return collectFallbackBlockers(host, blurContainer).length === 0;
     }
 
     function clearPendingFallback(host) {
@@ -1235,18 +1243,37 @@
 
     function scheduleFallbackBuild(el, img, postHref) {
         const host = getOverlayHost(el);
-        if (!host) return;
+        if (!host) {
+            recordDebug('missing-overlay-host', {
+                currentUrl: location.href,
+                reason: getReason(el)
+            });
+            return;
+        }
 
         clearPendingFallback(host);
 
-        if (!shouldBuildFallback(host, el)) {
+        const initialBlockers = collectFallbackBlockers(host, el);
+        recordDebug('schedule-fallback', {
+            normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+            blockers: initialBlockers,
+            imgFound: Boolean(img)
+        });
+
+        if (initialBlockers.length) {
             yieldToNativeMedia(host, el);
             return;
         }
 
         const timer = setTimeout(() => {
             fallbackTimers.delete(host);
-            if (!shouldBuildFallback(host, el)) {
+            const timerBlockers = collectFallbackBlockers(host, el);
+            recordDebug('fallback-timer-fired', {
+                normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                blockers: timerBlockers,
+                imgFound: Boolean(img)
+            });
+            if (timerBlockers.length) {
                 yieldToNativeMedia(host, el);
                 return;
             }
@@ -1258,7 +1285,8 @@
 
     function processBlurredContainer(el) {
         if (!(el instanceof Element)) return;
-        if (!shouldHandleReason(getReason(el))) return;
+        const reason = getReason(el);
+        if (!shouldHandleReason(reason)) return;
 
         const host = getOverlayHost(el);
         unblurElement(el, host);
@@ -1266,13 +1294,28 @@
         const img = el.querySelector('img');
         const postHref = resolvePostHref(el, host);
 
+        recordDebug('process-blurred-container', {
+            reason,
+            hostFound: Boolean(host),
+            imgFound: Boolean(img),
+            normalizedPostUrl: normalizePostHref(postHref) || postHref || null
+        });
+
         scheduleFallbackBuild(el, img, postHref);
     }
 
     function scan(root = document) {
         if (!(root instanceof Element || root instanceof Document)) return;
-        root.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').forEach(processBlurredContainer);
+        const blurred = root.querySelectorAll('shreddit-blurred-container[reason="nsfw"]');
+        if (blurred.length) {
+            recordDebug('scan-found-blurs', {
+                count: blurred.length,
+                currentUrl: location.href
+            });
+        }
+        blurred.forEach(processBlurredContainer);
     }
+
 
     const mo = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
@@ -1297,7 +1340,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.19',
+            version: '1.20',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });
