@@ -18,6 +18,7 @@
 - normalized post URLs
 - candidate video URLs in probe order
 - which video URL actually passed preload
+- whether a built fallback later yielded back to Reddit native media
 - media-type resolution and preload outcomes
 - Main failure points:
 - post JSON fetch failure
@@ -33,6 +34,7 @@
 - Confirm which script line is responsible for the current issue.
 - Check whether Reddit still renders a `shreddit-blurred-container`.
 - Export the reconstruction trace before changing logic when the problem is live in the browser.
+- For unstable cases where Reddit native media appears intermittently, check whether the trace contains `fallback-build-success` without a later `fallback-yielded-to-native`.
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
 

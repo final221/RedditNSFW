@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.17
+// @version      1.18
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -704,6 +704,23 @@
         return false;
     }
 
+    function yieldToNativeMedia(host, blurContainer) {
+        if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
+
+        const hasCustomLayer = host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1' || Boolean(host.querySelector(':scope > .tm-unblur-media-layer, :scope > .tm-nsfw-overlay'));
+        if (!hasCustomLayer) return false;
+        if (!hasNativeResolvedMedia(host, blurContainer)) return false;
+
+        recordDebug('fallback-yielded-to-native', {
+            normalizedPostUrl: resolvePostHref(blurContainer, host),
+            hadOverlay: host.dataset.tmOverlayBuilt === '1',
+            hadMediaLayer: host.dataset.tmMediaBuilt === '1'
+        });
+
+        removeCustomLayer(host);
+        return true;
+    }
+
     function shouldBuildFallback(host, blurContainer) {
         if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
         if ((blurContainer.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return false;
@@ -927,8 +944,8 @@
             return button;
         };
 
-        const prevButton = makeNavButton('‹', 'left');
-        const nextButton = makeNavButton('›', 'right');
+        const prevButton = makeNavButton('<', 'left');
+        const nextButton = makeNavButton('>', 'right');
         let currentIndex = 0;
 
         const renderIndex = (index) => {
@@ -1209,15 +1226,14 @@
         clearPendingFallback(host);
 
         if (!shouldBuildFallback(host, el)) {
-            if (host.dataset.tmOverlayBuilt === '1' && hasNativeResolvedMedia(host, el)) {
-                removeCustomLayer(host);
-            }
+            yieldToNativeMedia(host, el);
             return;
         }
 
         const timer = setTimeout(() => {
             fallbackTimers.delete(host);
             if (!shouldBuildFallback(host, el)) {
+                yieldToNativeMedia(host, el);
                 return;
             }
             buildOverlay(el, img, postHref);
@@ -1267,7 +1283,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.17',
+            version: '1.18',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });
