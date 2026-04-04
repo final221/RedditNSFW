@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.24
+// @version      1.25
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -633,6 +633,11 @@
         if (!(host instanceof Element)) return;
         host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
         host.querySelectorAll(':scope > .tm-nsfw-overlay').forEach(el => el.remove());
+        if (host.dataset.tmFallbackMinHeightApplied === '1') {
+            host.style.minHeight = host.dataset.tmFallbackPrevMinHeight || '';
+            delete host.dataset.tmFallbackMinHeightApplied;
+            delete host.dataset.tmFallbackPrevMinHeight;
+        }
         delete host.dataset.tmOverlayBuilt;
         delete host.dataset.tmMediaBuilt;
     }
@@ -811,6 +816,82 @@
         }
     }
 
+    function measureFallbackLayout(host, blurContainer, sourceImg, preloadedImg) {
+        const hostRect = host instanceof Element ? host.getBoundingClientRect() : null;
+        const blurRect = blurContainer instanceof Element ? blurContainer.getBoundingClientRect() : null;
+        const sourceRect = sourceImg instanceof Element ? sourceImg.getBoundingClientRect() : null;
+        const naturalWidth = preloadedImg?.naturalWidth || sourceImg?.naturalWidth || 0;
+        const naturalHeight = preloadedImg?.naturalHeight || sourceImg?.naturalHeight || 0;
+        const width = Math.max(
+            0,
+            host?.clientWidth || 0,
+            Math.round(hostRect?.width || 0),
+            blurContainer?.clientWidth || 0,
+            Math.round(blurRect?.width || 0),
+            sourceImg?.clientWidth || 0,
+            Math.round(sourceRect?.width || 0)
+        );
+        const hostHeight = Math.max(host?.clientHeight || 0, Math.round(hostRect?.height || 0));
+        const measuredHeight = Math.max(
+            0,
+            hostHeight,
+            blurContainer?.clientHeight || 0,
+            Math.round(blurRect?.height || 0),
+            sourceImg?.clientHeight || 0,
+            Math.round(sourceRect?.height || 0)
+        );
+
+        let height = measuredHeight;
+        if (!height && width > 0 && naturalWidth > 0 && naturalHeight > 0) {
+            height = Math.round(width * naturalHeight / naturalWidth);
+        }
+        if (!height && naturalHeight > 0) {
+            height = naturalHeight;
+        }
+
+        return {
+            width,
+            height,
+            naturalWidth,
+            naturalHeight,
+            hostHeight,
+            seededHostHeight: hostHeight === 0 && height > 0,
+            aspectRatio: naturalWidth > 0 && naturalHeight > 0 ? `${naturalWidth} / ${naturalHeight}` : null
+        };
+    }
+
+    function applyFallbackLayout(host, layer, frame, layout, kind) {
+        if (!(host instanceof Element) || !(layer instanceof Element) || !layout) return;
+
+        forceRelative(host);
+
+        if (layout.seededHostHeight) {
+            if (host.dataset.tmFallbackMinHeightApplied !== '1') {
+                host.dataset.tmFallbackPrevMinHeight = host.style.minHeight || '';
+                host.dataset.tmFallbackMinHeightApplied = '1';
+            }
+            host.style.minHeight = `${Math.max(layout.height, 180)}px`;
+        }
+
+        const target = frame instanceof Element ? frame : layer;
+        if (layout.height > 0) {
+            target.style.minHeight = `${Math.max(layout.height, 180)}px`;
+        }
+        if (frame instanceof Element && layout.aspectRatio) {
+            frame.style.aspectRatio = layout.aspectRatio;
+        }
+
+        recordDebug('fallback-layout-seeded', {
+            kind,
+            width: layout.width,
+            height: layout.height,
+            naturalWidth: layout.naturalWidth,
+            naturalHeight: layout.naturalHeight,
+            seededHostHeight: layout.seededHostHeight,
+            aspectRatio: layout.aspectRatio
+        });
+    }
+
     async function preloadImage(url) {
         return await new Promise((resolve) => {
             const img = new Image();
@@ -921,7 +1002,7 @@
         return null;
     }
 
-    function createSharpLayer(host, imageUrl, clickHref, altText) {
+    function createSharpLayer(host, imageUrl, clickHref, altText, layout = null) {
         if (!(host instanceof Element) || !imageUrl) return false;
 
         host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
@@ -973,6 +1054,8 @@
             clickHref: clickHref || null
         });
 
+        applyFallbackLayout(host, layer, anchor, layout, 'single');
+
         anchor.appendChild(img);
         layer.appendChild(anchor);
         host.appendChild(layer);
@@ -981,7 +1064,7 @@
         return true;
     }
 
-    function createGalleryLayer(host, media, clickHref, altText) {
+    function createGalleryLayer(host, media, clickHref, altText, layout = null) {
         if (!(host instanceof Element) || !Array.isArray(media?.items) || media.items.length === 0) return false;
 
         host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
@@ -1107,6 +1190,7 @@
         }
 
         renderIndex(0);
+        applyFallbackLayout(host, layer, frame, layout, 'gallery');
         frame.appendChild(image);
         if (media.items.length > 1) {
             frame.appendChild(prevButton);
@@ -1120,7 +1204,7 @@
         return true;
     }
 
-    function createVideoLayer(host, media, clickHref) {
+    function createVideoLayer(host, media, clickHref, layout = null) {
         if (!(host instanceof Element) || !media?.src) return false;
 
         host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
@@ -1192,6 +1276,8 @@
 
         video.addEventListener('playing', clearRecovery, { once: true });
         video.addEventListener('error', promoteVideoRecovery, { once: true });
+
+        applyFallbackLayout(host, layer, null, layout, 'video');
 
         layer.appendChild(video);
         host.appendChild(layer);
@@ -1292,7 +1378,8 @@
                         ok: Boolean(preloaded)
                     });
                     if (preloaded) {
-                        built = createGalleryLayer(host, media, clickHref, img?.alt || '');
+                        const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
+                        built = createGalleryLayer(host, media, clickHref, img?.alt || '', layout);
                     }
                 } else if (media?.type === 'image') {
                     const preloaded = await preloadImage(media.src);
@@ -1302,17 +1389,20 @@
                         ok: Boolean(preloaded)
                     });
                     if (preloaded) {
+                        const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
                         built = createSharpLayer(
                             host,
                             media.src,
                             clickHref,
-                            img?.alt || ''
+                            img?.alt || '',
+                            layout
                         );
                     }
                 } else if (media?.type === 'video') {
                     const playableSrc = await resolvePlayableVideoSource({ ...media, debugPostUrl: normalizedPostUrl });
                     if (playableSrc) {
-                        built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref);
+                        const layout = measureFallbackLayout(host, blurContainer, img, null);
+                        built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref, layout);
                     }
                 }
             } else {
@@ -1501,6 +1591,10 @@
         start();
     }
 })();
+
+
+
+
 
 
 

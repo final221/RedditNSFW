@@ -1,4 +1,19 @@
 # Changelog
+## 0.13.2 - 2026-04-04T23:04:04.107Z
+Previous: 0.13.1
+Commit: dcfcd3d
+Changes:
+- Add fallback image render-state export diagnostics
+- Prefer preview image sources before direct gallery rewrites
+- Recover lost fallback layers after Reddit rerenders
+- Cap guessed video ladder before deeper discovery
+- Expand recreation trace for pre-build skip diagnosis
+- Prefer declared video source before lower guesses
+- Yield recreation fallback back to native media
+- Add exportable debug trace for recreation diagnosis
+- Improve recreation source quality and permalink normalization
+- Require visible native media before suppressing recreation
+
 ## 0.13.1 - 2026-04-04T22:55:45.867Z
 Previous: 0.13.0
 Commit: 3e36d88
