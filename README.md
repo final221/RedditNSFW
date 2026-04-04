@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **0.2.0**
+Current: **0.2.1**
 
 RedditNSFW is a Reddit/Tampermonkey userscript repo focused on two related but separate problems on modern Reddit surfaces:
 - direct NSFW blur removal when Reddit still renders the media container correctly

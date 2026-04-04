@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.10
+// @version      1.11
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -14,7 +14,8 @@
     const DEBUG = false;
     const CONFIG = {
         fallbackDelayMs: 1200,
-        preferNativeReveal: true
+        preferNativeReveal: true,
+        videoRecoveryTimeoutMs: 1800
     };
     let lastUrl = location.href;
     const mediaCache = new Map();
@@ -213,16 +214,18 @@
             };
         }
 
+        const previewVideo = post?.preview?.reddit_video_preview;
         const previewMp4 =
-            post?.preview?.reddit_video_preview?.fallback_url ||
+            previewVideo?.fallback_url ||
             post?.preview?.images?.[0]?.variants?.mp4?.source?.url;
         if (previewMp4) {
+            const gifLike = Boolean(previewVideo) || post?.post_hint === 'image';
             return {
                 type: 'video',
                 src: decodeHtml(previewMp4),
                 poster,
-                loop: true,
-                controls: false
+                loop: gifLike,
+                controls: !gifLike
             };
         }
 
@@ -404,7 +407,7 @@
         const role = (node.getAttribute('role') || '').toLowerCase();
 
         if (className.includes('media-lightbox-img')) {
-            return true;
+            return !loweredSrc.includes('blur=');
         }
 
         if (node.closest('gallery-carousel, shreddit-gallery-carousel, faceplate-carousel, figure')) {
@@ -600,6 +603,12 @@
             visibility:visible !important;
         `;
 
+        const promoteVideoRecovery = () => {
+            video.controls = true;
+            video.setAttribute('controls', '');
+            video.dataset.tmVideoRecovery = '1';
+        };
+
         if (clickHref) {
             video.dataset.tmClickHref = clickHref;
             video.addEventListener('dblclick', (event) => {
@@ -608,11 +617,37 @@
             });
         }
 
+        video.addEventListener('click', () => {
+            if (!video.paused) return;
+            const clickPlayAttempt = video.play();
+            if (clickPlayAttempt && typeof clickPlayAttempt.catch === 'function') {
+                clickPlayAttempt.catch(() => promoteVideoRecovery());
+            }
+        });
+
+        let playbackRecovered = false;
+        let recoveryTimer = 0;
+        const clearRecovery = () => {
+            playbackRecovered = true;
+            clearTimeout(recoveryTimer);
+        };
+
+        video.addEventListener('playing', clearRecovery, { once: true });
+        video.addEventListener('error', promoteVideoRecovery, { once: true });
+
         layer.appendChild(video);
         host.appendChild(layer);
+
+        recoveryTimer = setTimeout(() => {
+            if (playbackRecovered) return;
+            if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.paused) {
+                promoteVideoRecovery();
+            }
+        }, CONFIG.videoRecoveryTimeoutMs);
+
         const playAttempt = video.play();
         if (playAttempt && typeof playAttempt.catch === 'function') {
-            playAttempt.catch(() => {});
+            playAttempt.catch(() => promoteVideoRecovery());
         }
 
         host.dataset.tmMediaBuilt = '1';
