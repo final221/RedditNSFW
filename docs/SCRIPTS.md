@@ -24,8 +24,8 @@ Runtime: Tampermonkey on reddit.com and sh.reddit.com
 - Id: `imageRecreation`
 - File: `src/userscripts/reddit-image-recreation.user.js`
 - Source note: Imported from image recreation.txt
-- Role: Fallback script for Reddit media display failures where direct unblur is not enough.
-- Strategy: Fetch post JSON, resolve media URLs, preload the asset, and inject a replacement display layer.
+- Role: Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.
+- Strategy: Auto-flip the native blur state first, optionally click Reddit reveal controls, then fetch post JSON, resolve media URLs, and auto-build a replacement layer only when native media still fails.
 - Hosts: `https://www.reddit.com/*`, `https://sh.reddit.com/*`
-- Knobs: `DEBUG`, `mediaCache`, `URL change polling interval`
-- Debug: Local DEBUG constant gates logging | Console prefix: [Reddit External Unblur] | Rescans on client-side navigation
+- Knobs: `DEBUG`, `mediaCache`, `fallbackDelayMs`, `preferNativeReveal`, `useClickFallback`, `videoRecoveryTimeoutMs`, `URL change polling interval`
+- Debug: Local DEBUG constant gates logging | Console prefix: [Reddit External Unblur] | Rescans on client-side navigation | Falls back to a retry button only if automatic reconstruction fails

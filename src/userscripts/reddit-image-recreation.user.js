@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.13
+// @version      1.14
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -15,6 +15,7 @@
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: true,
+        useClickFallback: true,
         videoRecoveryTimeoutMs: 1800
     };
     let lastUrl = location.href;
@@ -23,6 +24,76 @@
 
     function log(...args) {
         if (DEBUG) console.log('[Reddit External Unblur]', ...args);
+    }
+
+    function getReason(el) {
+        return String(el?.getAttribute('reason') || '').trim().toLowerCase();
+    }
+
+    function shouldHandleReason(reason) {
+        return reason === 'nsfw';
+    }
+
+    function tryClickReveal(...scopes) {
+        if (!CONFIG.useClickFallback) return false;
+
+        for (const scope of scopes) {
+            if (!(scope instanceof Element || scope instanceof Document)) continue;
+
+            const candidates = scope.querySelectorAll('button, [role="button"]');
+            for (const node of candidates) {
+                if (!(node instanceof Element)) continue;
+                if (node.closest('.tm-nsfw-overlay') || node.closest('.tm-unblur-media-layer')) continue;
+
+                const text = (node.textContent || '').trim().toLowerCase();
+                if (
+                    text.includes('view') ||
+                    text.includes('reveal') ||
+                    text.includes('show') ||
+                    text.includes('continue') ||
+                    text.includes('yes') ||
+                    text.includes('nsfw')
+                ) {
+                    log('Fallback click:', text || node);
+                    node.click();
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    function unblurElement(blurContainer, host) {
+        if (!(blurContainer instanceof Element)) return false;
+
+        const reason = getReason(blurContainer);
+        if (!shouldHandleReason(reason)) {
+            return false;
+        }
+
+        let changed = false;
+
+        try {
+            if (blurContainer.blurred !== false) {
+                blurContainer.blurred = false;
+                changed = true;
+            }
+        } catch (err) {
+            log('Setting property failed:', err);
+        }
+
+        if (blurContainer.hasAttribute('blurred')) {
+            blurContainer.removeAttribute('blurred');
+            changed = true;
+        }
+
+        if (!changed) {
+            changed = tryClickReveal(host, blurContainer, document) || changed;
+        }
+
+        log('Processed blurred container:', { reason, changed, blurContainer });
+        return changed;
     }
 
     function decodeHtml(str) {
@@ -869,13 +940,13 @@
             display:flex;
             align-items:center;
             justify-content:center;
-            pointer-events:auto;
-            background:rgba(0,0,0,0.18);
+            pointer-events:none;
+            background:rgba(0,0,0,0.12);
         `;
 
         const button = document.createElement('button');
         button.type = 'button';
-        button.textContent = 'View NSFW content';
+        button.textContent = 'Loading...';
         button.style.cssText = `
             appearance:none;
             border:none;
@@ -889,12 +960,15 @@
             pointer-events:auto;
         `;
 
-        button.addEventListener('click', async (event) => {
-            event.preventDefault();
-            event.stopPropagation();
-
+        const attemptBuild = async () => {
             button.disabled = true;
             button.textContent = 'Loading...';
+
+            if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
+                overlay.remove();
+                delete host.dataset.tmOverlayBuilt;
+                return;
+            }
 
             let built = false;
 
@@ -935,11 +1009,19 @@
             } else {
                 button.disabled = false;
                 button.textContent = 'Try again';
+                overlay.style.pointerEvents = 'auto';
             }
+        };
+
+        button.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            attemptBuild();
         });
 
         overlay.appendChild(button);
         host.appendChild(overlay);
+        attemptBuild();
     }
 
     function scheduleFallbackBuild(el, img, postHref) {
@@ -968,9 +1050,11 @@
 
     function processBlurredContainer(el) {
         if (!(el instanceof Element)) return;
-        if ((el.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return;
+        if (!shouldHandleReason(getReason(el))) return;
 
         const host = getOverlayHost(el);
+        unblurElement(el, host);
+
         const img = el.querySelector('img');
         const postHref = resolvePostHref(el, host);
 
@@ -984,9 +1068,17 @@
 
     const mo = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
+            if (mutation.type === 'attributes') {
+                const target = mutation.target;
+                if (target instanceof Element && target.matches('shreddit-blurred-container[reason]')) {
+                    processBlurredContainer(target);
+                }
+                continue;
+            }
+
             for (const node of mutation.addedNodes) {
                 if (node instanceof Element) {
-                    if (node.matches?.('shreddit-blurred-container[reason="nsfw"]')) {
+                    if (node.matches?.('shreddit-blurred-container[reason]')) {
                         processBlurredContainer(node);
                     }
                     scan(node);
@@ -999,7 +1091,12 @@
         scan(document);
 
         if (document.body) {
-            mo.observe(document.body, { childList: true, subtree: true });
+            mo.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['blurred', 'reason']
+            });
         }
 
         setInterval(() => {

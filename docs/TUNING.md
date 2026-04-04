@@ -6,10 +6,11 @@
 - `toastMs`: controls the local toast lifetime
 
 ## External reconstruction script knobs
-- `DEBUG`: enables console logging for URL-resolution and rescan behavior
+- `DEBUG`: enables console logging for URL-resolution, native unblur attempts, and rescan behavior
 - `mediaCache`: memoizes per-post JSON lookups within the page session
 - `fallbackDelayMs`: waits briefly before patching so Reddit-native reveal/media handling gets first priority
 - `preferNativeReveal`: skips automatic patching when Reddit still exposes its own reveal controls
+- `useClickFallback`: clicks Reddit reveal-style controls when direct blur-state flips do not take effect
 - `videoRecoveryTimeoutMs`: promotes fallback videos to visible controls when autoplay does not become usable quickly
 - URL polling interval: the script currently rescans on a `500ms` interval to catch client-side navigation
 

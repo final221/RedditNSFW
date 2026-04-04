@@ -25,15 +25,16 @@ const SCRIPT_CATALOG = {
       name: "Reddit Image Recreation",
       file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Imported from image recreation.txt",
-      role: "Fallback script for Reddit media display failures where direct unblur is not enough.",
-      strategy: "Fetch post JSON, resolve media URLs, preload the asset, and inject a replacement display layer.",
+      role: "Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.",
+      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, then fetch post JSON, resolve media URLs, and auto-build a replacement layer only when native media still fails.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Local DEBUG constant gates logging",
         "Console prefix: [Reddit External Unblur]",
-        "Rescans on client-side navigation"
+        "Rescans on client-side navigation",
+        "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["DEBUG", "mediaCache", "URL change polling interval"]
+      knobs: ["DEBUG", "mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "URL change polling interval"]
     }
   }
 };
@@ -41,3 +42,4 @@ const SCRIPT_CATALOG = {
 module.exports = {
   SCRIPT_CATALOG
 };
+

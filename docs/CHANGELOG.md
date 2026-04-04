@@ -1,4 +1,19 @@
 # Changelog
+## 0.5.0 - 2026-04-04T21:21:02.158Z
+Previous: 0.4.0
+Commit: bd4bfc4
+Changes:
+- Suppress recreation over native revealed embeds
+- Add gallery reconstruction support to image recreation
+- Harden image recreation media detection and video playback recovery
+- Skip recreation when Reddit gallery media is already usable
+- Prefer native Reddit media before fallback recreation
+- Add inline video recovery for image recreation
+- Fix external preview image recreation fallback
+- Harden agent commit push flow
+- Harden agent commit remote detection
+- Fix image recreation post resolution and enforce userscript version bumps
+
 ## 0.4.0 - 2026-04-04T21:10:13.079Z
 Previous: 0.3.0
 Commit: 74e1e00

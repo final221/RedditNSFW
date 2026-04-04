@@ -5,16 +5,17 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 
 ## Primary files
 - `src/userscripts/reddit-auto-unblur.user.js`: primary maintained unblur script
-- `src/userscripts/reddit-image-recreation.user.js`: maintained reconstruction fallback script
+- `src/userscripts/reddit-image-recreation.user.js`: maintained native-first unblur plus reconstruction script
 - `src/script-catalog.js`: script inventory and doc-sync source of truth
 - `Unblur.txt`: raw intake baseline for the unblur line
 - `image recreation.txt`: raw intake baseline for the reconstruction line
 
 ## Editing rule
-- Change maintained behavior in `src/userscripts/`.
+- Change maintained behavior in `src/userscripts/`. The image recreation script now owns both the native auto-unblur pass and the reconstruction fallback path.
 - When a maintained `.user.js` file changes, bump its Tampermonkey `@version` in the same change.
 - Keep the root `.txt` files only as preserved raw references unless the user explicitly wants them updated too.
 
 ## Verify surface
 - `npm run agent:verify` runs doc sync, userscript checks, build/version handling, extra sync checks, and `git status -sb`.
 - This repo expects to be inside a git repo before normal verify/commit use.
+
