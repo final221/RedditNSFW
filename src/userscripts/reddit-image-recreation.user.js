@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.7
+// @version      1.8
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -24,6 +24,11 @@
         const txt = document.createElement('textarea');
         txt.innerHTML = str;
         return txt.value;
+    }
+
+    function decodeUrl(raw) {
+        if (!raw || typeof raw !== 'string') return null;
+        return decodeHtml(raw);
     }
 
     function isDirectImageUrl(url) {
@@ -105,7 +110,11 @@
         }
     }
 
-    function extractImageUrlFromPost(post) {
+    function getPosterUrl(post) {
+        return decodeUrl(post?.preview?.images?.[0]?.source?.url) || null;
+    }
+
+    function extractImageMediaFromPost(post) {
         if (!post) return null;
 
         const candidates = [];
@@ -126,8 +135,17 @@
             candidates.push(mediaMeta.s.u);
         }
 
+        if (mediaMeta?.s?.gif) {
+            candidates.push(mediaMeta.s.gif);
+        }
+
         if (Array.isArray(mediaMeta?.p)) {
-            candidates.push(...mediaMeta.p.map(x => x?.u).filter(Boolean));
+            candidates.push(...mediaMeta.p.map((entry) => entry?.u).filter(Boolean));
+        }
+
+        const previewGif = post?.preview?.images?.[0]?.variants?.gif?.source?.url;
+        if (previewGif) {
+            candidates.push(previewGif);
         }
 
         const preview = post?.preview?.images?.[0]?.source?.url;
@@ -136,41 +154,78 @@
         }
 
         for (const raw of candidates) {
-            const decoded = decodeHtml(raw);
+            const decoded = decodeUrl(raw);
             if (isDirectImageUrl(decoded)) {
-                return decoded;
+                return {
+                    type: 'image',
+                    src: decoded
+                };
             }
         }
 
         for (const raw of candidates) {
             const direct = previewToDirect(raw);
             if (direct) {
-                return direct;
+                return {
+                    type: 'image',
+                    src: direct
+                };
             }
         }
-
 
         for (const raw of candidates) {
-            const decoded = decodeHtml(raw);
+            const decoded = decodeUrl(raw);
             if (isExternalPreviewUrl(decoded)) {
-                return decoded;
+                return {
+                    type: 'image',
+                    src: decoded
+                };
             }
         }
+
         if (preview) {
-            return decodeHtml(preview);
+            return {
+                type: 'image',
+                src: decodeHtml(preview)
+            };
         }
 
         return null;
     }
 
-    function extractVideoUrlFromPost(post) {
+    function extractVideoMediaFromPost(post) {
         if (!post) return null;
 
-        const videoUrl =
-            post?.secure_media?.reddit_video?.fallback_url ||
-            post?.media?.reddit_video?.fallback_url;
+        const poster = getPosterUrl(post);
+        const redditVideo = post?.secure_media?.reddit_video || post?.media?.reddit_video;
+        if (redditVideo?.fallback_url) {
+            return {
+                type: 'video',
+                src: decodeHtml(redditVideo.fallback_url),
+                poster,
+                loop: Boolean(redditVideo.is_gif),
+                controls: !redditVideo.is_gif
+            };
+        }
 
-        return videoUrl ? decodeHtml(videoUrl) : null;
+        const previewMp4 =
+            post?.preview?.reddit_video_preview?.fallback_url ||
+            post?.preview?.images?.[0]?.variants?.mp4?.source?.url;
+        if (previewMp4) {
+            return {
+                type: 'video',
+                src: decodeHtml(previewMp4),
+                poster,
+                loop: true,
+                controls: false
+            };
+        }
+
+        return null;
+    }
+
+    function resolveMediaFromPost(post) {
+        return extractVideoMediaFromPost(post) || extractImageMediaFromPost(post);
     }
 
     function getOverlayHost(blurContainer) {
@@ -312,6 +367,31 @@
         });
     }
 
+    async function preloadVideo(url) {
+        return await new Promise((resolve) => {
+            const video = document.createElement('video');
+            let settled = false;
+
+            const finish = (value) => {
+                if (settled) return;
+                settled = true;
+                clearTimeout(timer);
+                resolve(value);
+            };
+
+            const timer = setTimeout(() => finish(null), 8000);
+
+            video.preload = 'auto';
+            video.muted = true;
+            video.playsInline = true;
+            video.addEventListener('loadeddata', () => finish(video), { once: true });
+            video.addEventListener('canplay', () => finish(video), { once: true });
+            video.addEventListener('error', () => finish(null), { once: true });
+            video.src = url;
+            video.load();
+        });
+    }
+
     function createSharpLayer(host, imageUrl, clickHref, altText) {
         if (!(host instanceof Element) || !imageUrl) return false;
 
@@ -367,6 +447,66 @@
         return true;
     }
 
+    function createVideoLayer(host, media, clickHref) {
+        if (!(host instanceof Element) || !media?.src) return false;
+
+        host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
+
+        const layer = document.createElement('div');
+        layer.className = 'tm-unblur-media-layer';
+        layer.style.cssText = `
+            position:absolute;
+            inset:0;
+            z-index:9998;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            pointer-events:auto;
+            background:transparent;
+        `;
+
+        const video = document.createElement('video');
+        video.src = media.src;
+        video.poster = media.poster || '';
+        video.preload = 'auto';
+        video.autoplay = true;
+        video.loop = Boolean(media.loop);
+        video.muted = true;
+        video.defaultMuted = true;
+        video.playsInline = true;
+        video.controls = Boolean(media.controls);
+        video.setAttribute('playsinline', '');
+        video.style.cssText = `
+            display:block;
+            max-width:100%;
+            max-height:100%;
+            width:auto;
+            height:auto;
+            object-fit:contain;
+            background:#000;
+            opacity:1 !important;
+            visibility:visible !important;
+        `;
+
+        if (clickHref) {
+            video.dataset.tmClickHref = clickHref;
+            video.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                window.open(clickHref, '_blank', 'noopener');
+            });
+        }
+
+        layer.appendChild(video);
+        host.appendChild(layer);
+        const playAttempt = video.play();
+        if (playAttempt && typeof playAttempt.catch === 'function') {
+            playAttempt.catch(() => {});
+        }
+
+        host.dataset.tmMediaBuilt = '1';
+        return true;
+    }
+
     function buildOverlay(blurContainer, img, postHref) {
         const host = getOverlayHost(blurContainer);
         if (!host) return;
@@ -416,25 +556,25 @@
 
             if (postHref) {
                 const post = await fetchPostData(postHref);
-                const realImageUrl = extractImageUrlFromPost(post);
+                const media = resolveMediaFromPost(post);
+                const clickHref = new URL(postHref, location.origin).toString();
 
-                log('Resolved image URL:', realImageUrl);
+                log('Resolved media:', media);
 
-                if (realImageUrl) {
-                    const preloaded = await preloadImage(realImageUrl);
+                if (media?.type === 'image') {
+                    const preloaded = await preloadImage(media.src);
                     if (preloaded) {
                         built = createSharpLayer(
                             host,
-                            realImageUrl,
-                            new URL(postHref, location.origin).toString(),
+                            media.src,
+                            clickHref,
                             img?.alt || ''
                         );
                     }
-                } else {
-                    const realVideoUrl = extractVideoUrlFromPost(post);
-                    if (realVideoUrl) {
-                        window.open(new URL(postHref, location.origin).toString(), '_blank', 'noopener');
-                        built = true;
+                } else if (media?.type === 'video') {
+                    const preloaded = await preloadVideo(media.src);
+                    if (preloaded) {
+                        built = createVideoLayer(host, media, clickHref);
                     }
                 }
             }

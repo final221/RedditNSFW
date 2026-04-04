@@ -15,6 +15,7 @@
 - media URL extraction failure
 - incorrect rewriting of `external-preview.redd.it` URLs into invalid `i.redd.it` URLs
 - preload failure
+- video or gif-like posts resolving to the wrong media type or URL
 - Reddit DOM changes that prevent overlay attachment
 
 ## First debugging pass
