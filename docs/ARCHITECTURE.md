@@ -12,7 +12,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 ### External media reconstruction
 - Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
-- Primary mechanisms: prefer Reddit's own reveal/media path first, then fetch post JSON, resolve image or video URLs, preload resolved media, and inject a custom fallback layer only when native handling still looks blocked
+- Primary mechanisms: prefer Reddit's own reveal/media path first, treat native galleries or visible media inside Reddit's blur wrapper as already-resolved, then fetch post JSON, resolve image or video URLs, preload resolved media, and inject a custom fallback layer only when native handling still looks blocked
 
 ## Shared assumptions
 - Runtime is Tampermonkey in the browser.
@@ -23,3 +23,4 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 - `src/script-catalog.js` is the metadata source of truth.
 - `build/check-userscripts.js` performs local syntax and header validation for maintained userscripts.
 - `build/sync-docs.js` regenerates the script reference doc and README script summary from the catalog.
+

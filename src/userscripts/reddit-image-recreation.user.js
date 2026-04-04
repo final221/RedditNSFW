@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.9
+// @version      1.10
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -385,6 +385,49 @@
         return false;
     }
 
+    function nodeHasUsableNativeMedia(node, blurContainer) {
+        if (!(node instanceof Element)) return false;
+        if (node.closest('.tm-unblur-media-layer')) return false;
+
+        if (node.matches('video, iframe')) {
+            return true;
+        }
+
+        if (!node.matches('img')) {
+            return false;
+        }
+
+        const src = node.getAttribute('src') || node.getAttribute('data-lazy-src') || node.currentSrc || '';
+        const loweredSrc = src.toLowerCase();
+        const className = node.className || '';
+        const alt = (node.getAttribute('alt') || '').trim();
+        const role = (node.getAttribute('role') || '').toLowerCase();
+
+        if (className.includes('media-lightbox-img')) {
+            return true;
+        }
+
+        if (node.closest('gallery-carousel, shreddit-gallery-carousel, faceplate-carousel, figure')) {
+            if (!loweredSrc.includes('blur=')) {
+                return true;
+            }
+        }
+
+        if (role === 'presentation' || className.includes('post-background-image-filter')) {
+            return false;
+        }
+
+        if (alt && !loweredSrc.includes('blur=')) {
+            return true;
+        }
+
+        if (!(blurContainer instanceof Element) || !blurContainer.contains(node)) {
+            return true;
+        }
+
+        return false;
+    }
+
     function hasNativeResolvedMedia(host, blurContainer) {
         if (!(host instanceof Element)) return false;
 
@@ -395,10 +438,9 @@
 
         const mediaNodes = host.querySelectorAll('img, video, iframe');
         for (const node of mediaNodes) {
-            if (!(node instanceof Element)) continue;
-            if (node.closest('.tm-unblur-media-layer')) continue;
-            if (blurContainer instanceof Element && blurContainer.contains(node)) continue;
-            return true;
+            if (nodeHasUsableNativeMedia(node, blurContainer)) {
+                return true;
+            }
         }
 
         if (blurContainer && blurContainer.blurred === false) {
@@ -740,3 +782,4 @@
         start();
     }
 })();
+

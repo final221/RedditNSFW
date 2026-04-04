@@ -17,10 +17,11 @@
 - preload failure
 - video or gif-like posts resolving to the wrong media type or URL
 - Reddit DOM changes that prevent overlay attachment
-- native Reddit controls/media being present when the fallback heuristic expected a broken state
+- native Reddit controls, galleries, or visible media inside the blur wrapper being present when the fallback heuristic expected a broken state
 
 ## First debugging pass
 - Confirm which script line is responsible for the current issue.
 - Check whether Reddit still renders a `shreddit-blurred-container`.
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
+
