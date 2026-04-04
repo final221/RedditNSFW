@@ -1,0 +1,19 @@
+# Context
+
+## Repo purpose
+This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on current Reddit surfaces. The repo is not a generic browser-userscript collection. It is centered on the Reddit-specific split between direct blur removal and media reconstruction.
+
+## Primary files
+- `src/userscripts/reddit-unblur-extended.user.js`: primary maintained unblur script
+- `src/userscripts/reddit-unblur-external-layer.user.js`: maintained reconstruction fallback script
+- `src/script-catalog.js`: script inventory and doc-sync source of truth
+- `Unblur.txt`: raw intake baseline for the unblur line
+- `image recreation.txt`: raw intake baseline for the reconstruction line
+
+## Editing rule
+- Change maintained behavior in `src/userscripts/`.
+- Keep the root `.txt` files only as preserved raw references unless the user explicitly wants them updated too.
+
+## Verify surface
+- `npm run agent:verify` runs doc sync, userscript checks, build/version handling, extra sync checks, and `git status -sb`.
+- This repo expects to be inside a git repo before normal verify/commit use.
