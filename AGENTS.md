@@ -17,6 +17,11 @@
 - When the user is asking for strategy, comparisons, or scope decisions, do not edit files or run builds.
 - When the user asks to implement, carry through to a working repo state.
 
+## Known tooling issues
+- If `apply_patch` starts throwing repeated Windows sandbox refresh errors in this repo, stop using it for that turn and switch to direct shell-based file edits.
+- If `agent:commit` creates the commit but the push misbehaves under Node on this machine, push from the shell after the commit instead of retrying the same failing path blindly.
+- Do not parallelize dependent git setup steps such as `git init`, remote creation, or first-push wiring.
+
 ## Start
 - `package.json`
 - `build/agent-verify.js`
@@ -46,6 +51,8 @@
 - Any change to a maintained `.user.js` file must also bump that script's Tampermonkey `@version` in the same change, even when `BUMP=none`.
 - When reporting verification, include any warnings or skipped checks.
 - Documentation sync is mandatory whenever script behavior, config flags, debug hooks, file layout, or workflow changes.
+- After making repo changes, finish the turn by committing and pushing them unless the user explicitly asks not to publish yet.
+- If `agent:commit` fails to push on this machine, use shell `git push` immediately after the commit and confirm `main` matches `origin/main`.
 
 ## Structural contracts
 - Every maintained userscript file must keep a valid Tampermonkey header block.

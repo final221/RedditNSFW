@@ -13,6 +13,7 @@
 - Main failure points:
 - post JSON fetch failure
 - media URL extraction failure
+- incorrect rewriting of `external-preview.redd.it` URLs into invalid `i.redd.it` URLs
 - preload failure
 - Reddit DOM changes that prevent overlay attachment
 
