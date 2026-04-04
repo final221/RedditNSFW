@@ -1,0 +1,22 @@
+<div class="relative overflow-hidden pointer-cursor  mb-xs  isolate bg-neutral-background rounded-4" slot="post-media-container" data-tm-overlay-built="1">
+      
+      <div class="pointer-events-none absolute inset-0 z-[3] border-sm border-solid border-neutral-border-weak rounded-4"></div>
+      <shreddit-aspect-ratio class="" id="t3_1salms2-aspect-ratio" is-nsfw-blocked="true" style="
+    --aspect-ratio: 1;
+    --max-height: min(100%, 540px);
+    --min-height: 220px;
+    ">
+    <shreddit-blurred-container mode="slot" reason="nsfw">
+      <div slot="blurred"> <div class="h-full w-full object-contain  bg-black  border-none xs:rounded-t-[16px] relative overflow-hidden">
+       <img alt="" role="presentation" class="absolute top-0 top-1/2 -translate-y-1/2 w-full opacity-30 object-cover scale-[1.2] post-background-image-filter" loading="eager" src="https://preview.redd.it/bf4xmr5pwssg1.jpeg?width=1080&amp;blur=40&amp;format=pjpg&amp;auto=webp&amp;s=3c8b64849be397d3542c33319bd41ab02f16f39c" style=""> 
+    <img alt="r/OliviaRodrigoNSFW - 'my third album ‘you seem pretty sad for a girl so in love’' - IG April 2026" class="max-h-[100vw] h-full w-full object-contain relative" loading="lazy" fetchpriority="auto" src="https://preview.redd.it/bf4xmr5pwssg1.jpeg?width=1080&amp;blur=40&amp;format=pjpg&amp;auto=webp&amp;s=3c8b64849be397d3542c33319bd41ab02f16f39c" style="">
+  
+    </div>
+    </div>
+      
+    </shreddit-blurred-container>
+  </shreddit-aspect-ratio>
+      <div>
+            
+          </div>
+    <div class="tm-nsfw-overlay" style="position: absolute; inset: 0px; z-index: 9999; display: flex; align-items: center; justify-content: center; pointer-events: auto; background: rgba(0, 0, 0, 0.18);"><button type="button" style="appearance: none; border: medium; border-radius: 999px; padding: 10px 16px; font: 600 14px / 1.2 sans-serif; color: rgb(255, 255, 255); background: rgba(0, 0, 0, 0.82); cursor: pointer; box-shadow: rgba(0, 0, 0, 0.35) 0px 4px 14px; pointer-events: auto;">Try again</button></div></div>

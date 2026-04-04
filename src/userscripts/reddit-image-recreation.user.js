@@ -164,6 +164,110 @@
         );
     }
 
+    function extractPostIdToken(value) {
+        if (!value) return null;
+
+        const text = String(value);
+        const fullnameMatch = text.match(/\bt3_([a-z0-9]+)\b/i);
+        if (fullnameMatch) {
+            return fullnameMatch[1].toLowerCase();
+        }
+
+        const commentsMatch = text.match(/\/comments\/([a-z0-9]+)(?:\/|$)/i);
+        if (commentsMatch) {
+            return commentsMatch[1].toLowerCase();
+        }
+
+        return null;
+    }
+
+    function collectPostIdToken(blurContainer, host) {
+        const candidates = [];
+
+        if (blurContainer instanceof Element) {
+            candidates.push(
+                blurContainer.id,
+                blurContainer.getAttribute('id'),
+                blurContainer.getAttribute('for'),
+                blurContainer.getAttribute('aria-controls')
+            );
+        }
+
+        if (host instanceof Element) {
+            candidates.push(
+                host.id,
+                host.getAttribute('id'),
+                host.getAttribute('for'),
+                host.getAttribute('aria-controls')
+            );
+
+            const scopedIdNode = host.querySelector('[id^="t3_"]');
+            if (scopedIdNode instanceof Element) {
+                candidates.push(scopedIdNode.id, scopedIdNode.getAttribute('id'));
+            }
+        }
+
+        let cursor = host instanceof Element ? host : blurContainer;
+        while (cursor instanceof Element) {
+            candidates.push(
+                cursor.id,
+                cursor.getAttribute('id'),
+                cursor.getAttribute('for'),
+                cursor.getAttribute('aria-controls')
+            );
+            cursor = cursor.parentElement;
+        }
+
+        for (const value of candidates) {
+            const token = extractPostIdToken(value);
+            if (token) {
+                return token;
+            }
+        }
+
+        return null;
+    }
+
+    function resolvePostHref(blurContainer, host) {
+        const postIdToken = collectPostIdToken(blurContainer, host);
+        const scopeCandidates = [
+            blurContainer,
+            host,
+            host?.parentElement,
+            host?.closest('article'),
+            host?.closest('shreddit-post'),
+            host?.closest('faceplate-tracker'),
+            host?.closest('[id^="t3_"]'),
+            document
+        ].filter(Boolean);
+
+        for (const scope of scopeCandidates) {
+            const anchors = scope.querySelectorAll?.('a[href*="/comments/"]');
+            if (!anchors?.length) continue;
+
+            if (postIdToken) {
+                for (const anchor of anchors) {
+                    const href = anchor.getAttribute('href');
+                    if (extractPostIdToken(href) === postIdToken) {
+                        return href;
+                    }
+                }
+            }
+
+            if (anchors.length === 1) {
+                return anchors[0].getAttribute('href');
+            }
+        }
+
+        if (location.pathname.includes('/comments/')) {
+            if (!postIdToken || extractPostIdToken(location.pathname) === postIdToken) {
+                return location.href;
+            }
+        }
+
+        return null;
+    }
+
     function forceRelative(host) {
         if (!(host instanceof Element)) return;
         if (getComputedStyle(host).position === 'static') {
@@ -334,11 +438,9 @@
         if (!(el instanceof Element)) return;
         if ((el.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return;
 
+        const host = getOverlayHost(el);
         const img = el.querySelector('img');
-        if (!img) return;
-
-        const postLink = el.querySelector('a[href*="/comments/"]');
-        const postHref = postLink ? postLink.getAttribute('href') : null;
+        const postHref = resolvePostHref(el, host);
 
         buildOverlay(el, img, postHref);
     }
