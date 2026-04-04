@@ -1,4 +1,19 @@
 # Changelog
+## 0.5.1 - 2026-04-04T21:31:20.851Z
+Previous: 0.5.0
+Commit: 79bcc57
+Changes:
+- Integrate native auto-unblur into image recreation
+- Suppress recreation over native revealed embeds
+- Add gallery reconstruction support to image recreation
+- Harden image recreation media detection and video playback recovery
+- Skip recreation when Reddit gallery media is already usable
+- Prefer native Reddit media before fallback recreation
+- Add inline video recovery for image recreation
+- Fix external preview image recreation fallback
+- Harden agent commit push flow
+- Harden agent commit remote detection
+
 ## 0.5.0 - 2026-04-04T21:21:02.158Z
 Previous: 0.4.0
 Commit: bd4bfc4

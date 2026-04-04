@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.14
+// @version      1.15
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -581,10 +581,6 @@
             if (nodeHasUsableNativeMedia(node, blurContainer)) {
                 return true;
             }
-        }
-
-        if (blurContainer && blurContainer.blurred === false) {
-            return true;
         }
 
         return false;
