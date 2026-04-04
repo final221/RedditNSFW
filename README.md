@@ -14,8 +14,8 @@ The maintained script entries live under `src/userscripts/`.
 
 ## Current Scripts
 <!-- SCRIPT_SUMMARY_START -->
-- `Reddit Unblur Extended` -> `src/userscripts/reddit-unblur-extended.user.js`: Primary script for direct blur removal when Reddit still renders the native media container correctly.
-- `Reddit Unblur External Layer` -> `src/userscripts/reddit-unblur-external-layer.user.js`: Fallback script for Reddit media display failures where direct unblur is not enough.
+- `Reddit Auto Unblur` -> `src/userscripts/reddit-auto-unblur.user.js`: Primary script for direct blur removal when Reddit still renders the native media container correctly.
+- `Reddit Image Recreation` -> `src/userscripts/reddit-image-recreation.user.js`: Fallback script for Reddit media display failures where direct unblur is not enough.
 <!-- SCRIPT_SUMMARY_END -->
 
 ## Repo Layout

@@ -10,9 +10,9 @@ Runtime: Tampermonkey on reddit.com and sh.reddit.com
 - `Unblur.txt`
 - `image recreation.txt`
 
-## Reddit Unblur Extended
+## Reddit Auto Unblur
 - Id: `unblur`
-- File: `src/userscripts/reddit-unblur-extended.user.js`
+- File: `src/userscripts/reddit-auto-unblur.user.js`
 - Source note: Imported from Unblur.txt
 - Role: Primary script for direct blur removal when Reddit still renders the native media container correctly.
 - Strategy: Flip the blurred state directly, remove the blur attribute, and fall back to clicking reveal-style controls.
@@ -20,9 +20,9 @@ Runtime: Tampermonkey on reddit.com and sh.reddit.com
 - Knobs: `includeSpoilers`, `useClickFallback`, `toastMs`
 - Debug: Alt+U toggles the script on or off | Alt+Shift+U toggles debug logging | Console prefix: [Reddit Unblur]
 
-## Reddit Unblur External Layer
+## Reddit Image Recreation
 - Id: `imageRecreation`
-- File: `src/userscripts/reddit-unblur-external-layer.user.js`
+- File: `src/userscripts/reddit-image-recreation.user.js`
 - Source note: Imported from image recreation.txt
 - Role: Fallback script for Reddit media display failures where direct unblur is not enough.
 - Strategy: Fetch post JSON, resolve media URLs, preload the asset, and inject a replacement display layer.

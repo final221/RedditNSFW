@@ -8,8 +8,8 @@ const SCRIPT_CATALOG = {
   },
   scripts: {
     unblur: {
-      name: "Reddit Unblur Extended",
-      file: "src/userscripts/reddit-unblur-extended.user.js",
+      name: "Reddit Auto Unblur",
+      file: "src/userscripts/reddit-auto-unblur.user.js",
       sourceNote: "Imported from Unblur.txt",
       role: "Primary script for direct blur removal when Reddit still renders the native media container correctly.",
       strategy: "Flip the blurred state directly, remove the blur attribute, and fall back to clicking reveal-style controls.",
@@ -22,8 +22,8 @@ const SCRIPT_CATALOG = {
       knobs: ["includeSpoilers", "useClickFallback", "toastMs"]
     },
     imageRecreation: {
-      name: "Reddit Unblur External Layer",
-      file: "src/userscripts/reddit-unblur-external-layer.user.js",
+      name: "Reddit Image Recreation",
+      file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Imported from image recreation.txt",
       role: "Fallback script for Reddit media display failures where direct unblur is not enough.",
       strategy: "Fetch post JSON, resolve media URLs, preload the asset, and inject a replacement display layer.",

@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Reddit Unblur External Layer
+// @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
 // @version      1.5
 // @match        https://www.reddit.com/*

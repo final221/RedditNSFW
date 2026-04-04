@@ -5,12 +5,12 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 ## Strategy Split
 
 ### Direct unblur
-- Entry: `src/userscripts/reddit-unblur-extended.user.js`
+- Entry: `src/userscripts/reddit-auto-unblur.user.js`
 - Purpose: remove or bypass Reddit's NSFW blur state when the native media container still works
 - Primary mechanisms: property flip, attribute removal, reveal-button fallback, mutation reprocessing
 
 ### External media reconstruction
-- Entry: `src/userscripts/reddit-unblur-external-layer.user.js`
+- Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
 - Primary mechanisms: fetch post JSON, resolve image or video URLs, preload resolved media, inject custom overlay/media layer
 

@@ -4,8 +4,8 @@
 This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on current Reddit surfaces. The repo is not a generic browser-userscript collection. It is centered on the Reddit-specific split between direct blur removal and media reconstruction.
 
 ## Primary files
-- `src/userscripts/reddit-unblur-extended.user.js`: primary maintained unblur script
-- `src/userscripts/reddit-unblur-external-layer.user.js`: maintained reconstruction fallback script
+- `src/userscripts/reddit-auto-unblur.user.js`: primary maintained unblur script
+- `src/userscripts/reddit-image-recreation.user.js`: maintained reconstruction fallback script
 - `src/script-catalog.js`: script inventory and doc-sync source of truth
 - `Unblur.txt`: raw intake baseline for the unblur line
 - `image recreation.txt`: raw intake baseline for the reconstruction line

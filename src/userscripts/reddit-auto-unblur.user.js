@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Reddit Unblur Extended
+// @name         Reddit Auto Unblur
 // @namespace    https://tampermonkey.net/
 // @version      1.3
 // @description  Unblurs Reddit Shreddit NSFW media, with toggle/debug/fallback support
@@ -35,7 +35,7 @@
     function saveBool(key, value) {
         try {
             localStorage.setItem(key, String(value));
-        } catch {}
+        } catch { }
     }
 
     let enabled = loadBool(STORAGE_KEYS.enabled, true);

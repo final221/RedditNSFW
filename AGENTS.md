@@ -30,8 +30,8 @@
 ## Agent quick map
 - Entry point: `src/userscripts/`
 - Main logic map: `src/script-catalog.js`
-- Core subsystem A: `src/userscripts/reddit-unblur-extended.user.js`
-- Core subsystem B: `src/userscripts/reddit-unblur-external-layer.user.js`
+- Core subsystem A: `src/userscripts/reddit-auto-unblur.user.js`
+- Core subsystem B: `src/userscripts/reddit-image-recreation.user.js`
 - Core subsystem C: `build/` repo workflow scripts
 - Logging / observability: browser console logs inside the userscripts and `docs/DEBUGGING.md`
 
