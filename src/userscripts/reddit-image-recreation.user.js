@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.12
+// @version      1.13
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -468,8 +468,37 @@
         return false;
     }
 
+    function hasNativeRevealedEmbed(blurContainer) {
+        if (!(blurContainer instanceof Element)) return false;
+
+        const revealed = blurContainer.querySelector(':scope > [slot="revealed"], [slot="revealed"]');
+        if (!(revealed instanceof Element)) {
+            return false;
+        }
+
+        if (revealed.querySelector('iframe, video, img, embed, object, shreddit-embed')) {
+            return true;
+        }
+
+        const asyncLoader = revealed.querySelector('shreddit-async-loader');
+        if (asyncLoader instanceof Element) {
+            return true;
+        }
+
+        const embedHtml = revealed.querySelector('shreddit-embed')?.getAttribute('html') || '';
+        if (typeof embedHtml === 'string' && embedHtml.trim()) {
+            return true;
+        }
+
+        return false;
+    }
+
     function hasNativeResolvedMedia(host, blurContainer) {
         if (!(host instanceof Element)) return false;
+
+        if (hasNativeRevealedEmbed(blurContainer)) {
+            return true;
+        }
 
         const nativeVideo = host.querySelector('video:not(.tm-unblur-media-layer video)');
         if (nativeVideo && !nativeVideo.closest('.tm-unblur-media-layer')) {

@@ -17,7 +17,7 @@
 - preload failure
 - video or gif-like posts resolving to the wrong media type or URL, gallery posts collapsing to a single item, or fallback videos becoming a dead autoplay-only layer
 - Reddit DOM changes that prevent overlay attachment
-- native Reddit controls, galleries, or visible media inside the blur wrapper being present when the fallback heuristic expected a broken state
+- native Reddit controls, galleries, revealed embeds, or visible media inside the blur wrapper being present when the fallback heuristic expected a broken state
 
 ## First debugging pass
 - Confirm which script line is responsible for the current issue.
