@@ -1,4 +1,19 @@
 # Changelog
+## 0.11.0 - 2026-04-04T22:33:18.930Z
+Previous: 0.10.0
+Commit: fb1ee37
+Changes:
+- Expand recreation trace for pre-build skip diagnosis
+- Prefer declared video source before lower guesses
+- Yield recreation fallback back to native media
+- Add exportable debug trace for recreation diagnosis
+- Improve recreation source quality and permalink normalization
+- Require visible native media before suppressing recreation
+- Integrate native auto-unblur into image recreation
+- Suppress recreation over native revealed embeds
+- Add gallery reconstruction support to image recreation
+- Harden image recreation media detection and video playback recovery
+
 ## 0.10.0 - 2026-04-04T22:17:50.352Z
 Previous: 0.9.0
 Commit: d6a8f66

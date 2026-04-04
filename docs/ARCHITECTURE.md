@@ -12,7 +12,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 ### External media reconstruction
 - Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
-- Primary mechanisms: auto-flip Reddit's native blur state first, optionally click Reddit reveal controls, treat native galleries, revealed embeds, or actually visible media inside Reddit's blur wrapper as already-resolved, normalize comment permalinks back to their parent post URLs, then fetch post JSON, resolve image, video, or gallery media, rank better Reddit mp4 variants while preferring the declared Reddit source ahead of lower guessed variants, preload the selected path, and auto-inject a custom fallback layer only when native handling still looks blocked; a flipped blur property alone does not suppress fallback recreation; fallback videos escalate to controls if autoplay never becomes usable
+- Primary mechanisms: auto-flip Reddit's native blur state first, optionally click Reddit reveal controls, treat native galleries, revealed embeds, or actually visible media inside Reddit's blur wrapper as already-resolved, normalize comment permalinks back to their parent post URLs, then fetch post JSON, resolve image, video, or gallery media, rank a capped set of Reddit mp4 guesses while preferring the declared Reddit source ahead of lower guessed variants, preload the selected path, and auto-inject a custom fallback layer only when native handling still looks blocked; a flipped blur property alone does not suppress fallback recreation; fallback videos escalate to controls if autoplay never becomes usable
 - Observability: the script keeps a rolling in-memory debug trace and can export it as `reddit-image-recreation-log.txt`, including scan/process/scheduling decisions, normalized post URLs, candidate video URLs in probe order, the playable source that actually passed preload, and whether a built fallback later yielded back to Reddit native media
 
 ## Shared assumptions
@@ -24,4 +24,5 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 - `src/script-catalog.js` is the metadata source of truth.
 - `build/check-userscripts.js` performs local syntax and header validation for maintained userscripts.
 - `build/sync-docs.js` regenerates the script reference doc and README script summary from the catalog.
+
 

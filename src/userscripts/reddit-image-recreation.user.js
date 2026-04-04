@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.20
+// @version      1.21
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -406,20 +406,30 @@
                 const url = new URL(decoded, location.origin);
                 const match = url.pathname.match(/\/(CMAF|DASH)_(\d+)\.mp4$/i);
                 if (match) {
-                    const family = match[1];
+                    const family = match[1].toUpperCase();
+                    const alternateFamily = family === 'CMAF' ? 'DASH' : 'CMAF';
                     const current = Number(match[2]);
-                    const rankedHeights = [2160, 1440, 1080, 720, 480, 360, 240];
-                    const higherHeights = rankedHeights.filter((value) => value > current);
-                    const lowerHeights = rankedHeights.filter((value) => value < current);
+                    const highProbeHeights = [1080, 720].filter((value) => value > current);
+                    const lowerHeights = [360, 240].filter((value) => value < current);
+                    const swapVariant = (nextFamily, nextHeight) => decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${nextFamily}_${nextHeight}.mp4`);
 
-                    for (const height of higherHeights) {
-                        add(decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${family}_${height}.mp4`));
+                    for (const height of highProbeHeights) {
+                        add(swapVariant(family, height));
+                    }
+
+                    for (const height of highProbeHeights) {
+                        add(swapVariant(alternateFamily, height));
                     }
 
                     add(decoded);
+                    add(swapVariant(alternateFamily, current));
 
                     for (const height of lowerHeights) {
-                        add(decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${family}_${height}.mp4`));
+                        add(swapVariant(family, height));
+                    }
+
+                    for (const height of lowerHeights) {
+                        add(swapVariant(alternateFamily, height));
                     }
 
                     addedStructuredOrder = true;
@@ -1340,7 +1350,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.20',
+            version: '1.21',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });
