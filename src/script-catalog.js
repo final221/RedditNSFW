@@ -26,7 +26,7 @@ const SCRIPT_CATALOG = {
       file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Imported from image recreation.txt",
       role: "Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.",
-      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, then fetch post JSON, resolve media URLs, and auto-build a replacement layer only when native media still fails.",
+      strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank better Reddit video sources, and auto-build a replacement layer only when native media still fails.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Local DEBUG constant gates logging",

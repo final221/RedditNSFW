@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.15
+// @version      1.16
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -161,9 +161,28 @@
         }
     }
 
-    async function fetchPostData(postHref) {
+    function normalizePostHref(postHref) {
+        if (!postHref || typeof postHref !== 'string') return null;
+
         try {
             const postUrl = new URL(postHref, location.origin);
+            const parts = postUrl.pathname.split('/').filter(Boolean);
+            const commentsIndex = parts.indexOf('comments');
+            if (commentsIndex >= 0 && parts.length >= commentsIndex + 2) {
+                postUrl.pathname = `/${parts.slice(0, commentsIndex + 2).join('/')}/`;
+            }
+            postUrl.search = '';
+            postUrl.hash = '';
+            return postUrl.toString();
+        } catch {
+            return null;
+        }
+    }
+
+    async function fetchPostData(postHref) {
+        try {
+            const normalizedHref = normalizePostHref(postHref) || postHref;
+            const postUrl = new URL(normalizedHref, location.origin);
             const postPath = postUrl.pathname.replace(/\/+$/, '');
 
             if (mediaCache.has(postPath)) {
@@ -307,6 +326,42 @@
         };
     }
 
+    function buildRankedVideoSources(...rawSources) {
+        const seen = new Set();
+        const ranked = [];
+        const add = (value) => {
+            const decoded = decodeUrl(value);
+            if (!decoded || seen.has(decoded)) return;
+            seen.add(decoded);
+            ranked.push(decoded);
+        };
+
+        for (const raw of rawSources) {
+            const decoded = decodeUrl(raw);
+            if (!decoded) continue;
+
+            try {
+                const url = new URL(decoded, location.origin);
+                const match = url.pathname.match(/\/(CMAF|DASH)_(\d+)\.mp4$/i);
+                if (match) {
+                    const family = match[1];
+                    const current = Number(match[2]);
+                    const rankedHeights = [2160, 1440, 1080, 720, 480, 360, 240]
+                        .filter((value) => value !== current);
+                    for (const height of rankedHeights) {
+                        add(decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${family}_${height}.mp4`));
+                    }
+                }
+            } catch {
+                // Keep the raw candidate even if URL parsing fails.
+            }
+
+            add(decoded);
+        }
+
+        return ranked;
+    }
+
     function extractVideoMediaFromPost(post) {
         if (!post) return null;
 
@@ -316,6 +371,7 @@
             return {
                 type: 'video',
                 src: decodeHtml(redditVideo.fallback_url),
+                sources: buildRankedVideoSources(redditVideo.fallback_url),
                 poster,
                 loop: Boolean(redditVideo.is_gif),
                 controls: !redditVideo.is_gif
@@ -331,6 +387,7 @@
             return {
                 type: 'video',
                 src: decodeHtml(previewMp4),
+                sources: buildRankedVideoSources(previewMp4),
                 poster,
                 loop: gifLike,
                 controls: !gifLike
@@ -438,19 +495,20 @@
                 for (const anchor of anchors) {
                     const href = anchor.getAttribute('href');
                     if (extractPostIdToken(href) === postIdToken) {
-                        return href;
+                        return normalizePostHref(href) || href;
                     }
                 }
             }
 
             if (anchors.length === 1) {
-                return anchors[0].getAttribute('href');
+                const href = anchors[0].getAttribute('href');
+                return normalizePostHref(href) || href;
             }
         }
 
         if (location.pathname.includes('/comments/')) {
             if (!postIdToken || extractPostIdToken(location.pathname) === postIdToken) {
-                return location.href;
+                return normalizePostHref(location.href) || location.href;
             }
         }
 
@@ -638,6 +696,18 @@
             video.src = url;
             video.load();
         });
+    }
+
+    async function resolvePlayableVideoSource(media) {
+        const candidates = Array.isArray(media?.sources) && media.sources.length ? media.sources : [media?.src];
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            const preloaded = await preloadVideo(candidate);
+            if (preloaded) {
+                return candidate;
+            }
+        }
+        return null;
     }
 
     function createSharpLayer(host, imageUrl, clickHref, altText) {
@@ -971,7 +1041,7 @@
             if (postHref) {
                 const post = await fetchPostData(postHref);
                 const media = resolveMediaFromPost(post);
-                const clickHref = new URL(postHref, location.origin).toString();
+                const clickHref = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
 
                 log('Resolved media:', media);
 
@@ -992,9 +1062,9 @@
                         );
                     }
                 } else if (media?.type === 'video') {
-                    const preloaded = await preloadVideo(media.src);
-                    if (preloaded) {
-                        built = createVideoLayer(host, media, clickHref);
+                    const playableSrc = await resolvePlayableVideoSource(media);
+                    if (playableSrc) {
+                        built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref);
                     }
                 }
             }
