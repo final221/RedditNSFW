@@ -15,7 +15,7 @@
 - media URL extraction failure
 - incorrect rewriting of `external-preview.redd.it` URLs into invalid `i.redd.it` URLs
 - preload failure
-- video or gif-like posts resolving to the wrong media type or URL, or falling back to a dead autoplay-only video layer
+- video or gif-like posts resolving to the wrong media type or URL, gallery posts collapsing to a single item, or fallback videos becoming a dead autoplay-only layer
 - Reddit DOM changes that prevent overlay attachment
 - native Reddit controls, galleries, or visible media inside the blur wrapper being present when the fallback heuristic expected a broken state
 

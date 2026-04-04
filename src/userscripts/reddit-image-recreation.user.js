@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.11
+// @version      1.12
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -120,6 +120,83 @@
         return decodeUrl(post?.preview?.images?.[0]?.source?.url) || null;
     }
 
+    function collectImageCandidates(mediaMeta) {
+        const candidates = [];
+
+        if (mediaMeta?.s?.u) {
+            candidates.push(mediaMeta.s.u);
+        }
+
+        if (mediaMeta?.s?.gif) {
+            candidates.push(mediaMeta.s.gif);
+        }
+
+        if (Array.isArray(mediaMeta?.p)) {
+            candidates.push(...mediaMeta.p.map((entry) => entry?.u).filter(Boolean));
+        }
+
+        return candidates;
+    }
+
+    function resolveImageSource(candidates, preview) {
+        for (const raw of candidates) {
+            const decoded = decodeUrl(raw);
+            if (isDirectImageUrl(decoded)) {
+                return decoded;
+            }
+        }
+
+        for (const raw of candidates) {
+            const direct = previewToDirect(raw);
+            if (direct) {
+                return direct;
+            }
+        }
+
+        for (const raw of candidates) {
+            const decoded = decodeUrl(raw);
+            if (isExternalPreviewUrl(decoded)) {
+                return decoded;
+            }
+        }
+
+        if (preview) {
+            return decodeHtml(preview);
+        }
+
+        return null;
+    }
+
+    function extractGalleryMediaFromPost(post) {
+        if (!post) return null;
+
+        const galleryItems = Array.isArray(post?.gallery_data?.items) ? post.gallery_data.items : [];
+        if (galleryItems.length < 2) {
+            return null;
+        }
+
+        const items = [];
+        for (const galleryItem of galleryItems) {
+            const mediaId = galleryItem?.media_id;
+            const mediaMeta = mediaId ? post?.media_metadata?.[mediaId] : null;
+            const src = resolveImageSource(collectImageCandidates(mediaMeta), null);
+            if (!src) continue;
+            items.push({
+                src,
+                alt: post?.title || ''
+            });
+        }
+
+        if (items.length < 2) {
+            return null;
+        }
+
+        return {
+            type: 'gallery',
+            items
+        };
+    }
+
     function extractImageMediaFromPost(post) {
         if (!post) return null;
 
@@ -136,18 +213,7 @@
         const firstGalleryItem = post?.gallery_data?.items?.[0];
         const mediaId = firstGalleryItem?.media_id;
         const mediaMeta = mediaId ? post?.media_metadata?.[mediaId] : null;
-
-        if (mediaMeta?.s?.u) {
-            candidates.push(mediaMeta.s.u);
-        }
-
-        if (mediaMeta?.s?.gif) {
-            candidates.push(mediaMeta.s.gif);
-        }
-
-        if (Array.isArray(mediaMeta?.p)) {
-            candidates.push(...mediaMeta.p.map((entry) => entry?.u).filter(Boolean));
-        }
+        candidates.push(...collectImageCandidates(mediaMeta));
 
         const previewGif = post?.preview?.images?.[0]?.variants?.gif?.source?.url;
         if (previewGif) {
@@ -159,44 +225,15 @@
             candidates.push(preview);
         }
 
-        for (const raw of candidates) {
-            const decoded = decodeUrl(raw);
-            if (isDirectImageUrl(decoded)) {
-                return {
-                    type: 'image',
-                    src: decoded
-                };
-            }
+        const src = resolveImageSource(candidates, preview);
+        if (!src) {
+            return null;
         }
 
-        for (const raw of candidates) {
-            const direct = previewToDirect(raw);
-            if (direct) {
-                return {
-                    type: 'image',
-                    src: direct
-                };
-            }
-        }
-
-        for (const raw of candidates) {
-            const decoded = decodeUrl(raw);
-            if (isExternalPreviewUrl(decoded)) {
-                return {
-                    type: 'image',
-                    src: decoded
-                };
-            }
-        }
-
-        if (preview) {
-            return {
-                type: 'image',
-                src: decodeHtml(preview)
-            };
-        }
-
-        return null;
+        return {
+            type: 'image',
+            src
+        };
     }
 
     function extractVideoMediaFromPost(post) {
@@ -233,7 +270,7 @@
     }
 
     function resolveMediaFromPost(post) {
-        return extractVideoMediaFromPost(post) || extractImageMediaFromPost(post);
+        return extractGalleryMediaFromPost(post) || extractVideoMediaFromPost(post) || extractImageMediaFromPost(post);
     }
 
     function getOverlayHost(blurContainer) {
@@ -562,6 +599,134 @@
         return true;
     }
 
+    function createGalleryLayer(host, media, clickHref, altText) {
+        if (!(host instanceof Element) || !Array.isArray(media?.items) || media.items.length === 0) return false;
+
+        host.querySelectorAll(':scope > .tm-unblur-media-layer').forEach(el => el.remove());
+
+        const layer = document.createElement('div');
+        layer.className = 'tm-unblur-media-layer';
+        layer.style.cssText = `
+            position:absolute;
+            inset:0;
+            z-index:9998;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            pointer-events:auto;
+            background:transparent;
+        `;
+
+        const frame = document.createElement('div');
+        frame.style.cssText = `
+            position:relative;
+            width:100%;
+            height:100%;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            overflow:hidden;
+        `;
+
+        const image = document.createElement('img');
+        image.loading = 'eager';
+        image.decoding = 'sync';
+        image.style.cssText = `
+            display:block;
+            max-width:100%;
+            max-height:100%;
+            width:auto;
+            height:auto;
+            object-fit:contain;
+            filter:none !important;
+            -webkit-filter:none !important;
+            opacity:1 !important;
+            visibility:visible !important;
+            cursor:${clickHref ? 'pointer' : 'default'};
+        `;
+
+        const counter = document.createElement('div');
+        counter.style.cssText = `
+            position:absolute;
+            left:50%;
+            bottom:12px;
+            transform:translateX(-50%);
+            padding:6px 10px;
+            border-radius:999px;
+            background:rgba(0,0,0,0.72);
+            color:#fff;
+            font:600 12px/1 sans-serif;
+            pointer-events:none;
+        `;
+
+        const makeNavButton = (label, direction) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = label;
+            button.style.cssText = `
+                position:absolute;
+                top:50%;
+                ${direction}:12px;
+                transform:translateY(-50%);
+                appearance:none;
+                border:none;
+                border-radius:999px;
+                width:40px;
+                height:40px;
+                background:rgba(0,0,0,0.72);
+                color:#fff;
+                font:700 18px/1 sans-serif;
+                cursor:pointer;
+                box-shadow:0 4px 14px rgba(0,0,0,0.35);
+            `;
+            return button;
+        };
+
+        const prevButton = makeNavButton('‹', 'left');
+        const nextButton = makeNavButton('›', 'right');
+        let currentIndex = 0;
+
+        const renderIndex = (index) => {
+            currentIndex = (index + media.items.length) % media.items.length;
+            const item = media.items[currentIndex];
+            image.src = item.src;
+            image.alt = item.alt || altText || '';
+            counter.textContent = `${currentIndex + 1} / ${media.items.length}`;
+        };
+
+        prevButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            renderIndex(currentIndex - 1);
+        });
+
+        nextButton.addEventListener('click', (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            renderIndex(currentIndex + 1);
+        });
+
+        if (clickHref) {
+            image.addEventListener('dblclick', (event) => {
+                event.preventDefault();
+                window.open(clickHref, '_blank', 'noopener');
+            });
+        }
+
+        renderIndex(0);
+        frame.appendChild(image);
+        if (media.items.length > 1) {
+            frame.appendChild(prevButton);
+            frame.appendChild(nextButton);
+            frame.appendChild(counter);
+        }
+        layer.appendChild(frame);
+        host.appendChild(layer);
+
+        host.dataset.tmMediaBuilt = '1';
+        return true;
+    }
+
     function createVideoLayer(host, media, clickHref) {
         if (!(host instanceof Element) || !media?.src) return false;
 
@@ -711,7 +876,13 @@
 
                 log('Resolved media:', media);
 
-                if (media?.type === 'image') {
+                if (media?.type === 'gallery') {
+                    const firstItem = media.items?.[0];
+                    const preloaded = firstItem ? await preloadImage(firstItem.src) : null;
+                    if (preloaded) {
+                        built = createGalleryLayer(host, media, clickHref, img?.alt || '');
+                    }
+                } else if (media?.type === 'image') {
                     const preloaded = await preloadImage(media.src);
                     if (preloaded) {
                         built = createSharpLayer(
