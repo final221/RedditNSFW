@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.18
+// @version      1.19
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -400,23 +400,37 @@
             const decoded = decodeUrl(raw);
             if (!decoded) continue;
 
+            let addedStructuredOrder = false;
+
             try {
                 const url = new URL(decoded, location.origin);
                 const match = url.pathname.match(/\/(CMAF|DASH)_(\d+)\.mp4$/i);
                 if (match) {
                     const family = match[1];
                     const current = Number(match[2]);
-                    const rankedHeights = [2160, 1440, 1080, 720, 480, 360, 240]
-                        .filter((value) => value !== current);
-                    for (const height of rankedHeights) {
+                    const rankedHeights = [2160, 1440, 1080, 720, 480, 360, 240];
+                    const higherHeights = rankedHeights.filter((value) => value > current);
+                    const lowerHeights = rankedHeights.filter((value) => value < current);
+
+                    for (const height of higherHeights) {
                         add(decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${family}_${height}.mp4`));
                     }
+
+                    add(decoded);
+
+                    for (const height of lowerHeights) {
+                        add(decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${family}_${height}.mp4`));
+                    }
+
+                    addedStructuredOrder = true;
                 }
             } catch {
                 // Keep the raw candidate even if URL parsing fails.
             }
 
-            add(decoded);
+            if (!addedStructuredOrder) {
+                add(decoded);
+            }
         }
 
         return ranked;
@@ -1283,7 +1297,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.18',
+            version: '1.19',
             shortcut: 'Alt+Shift+R',
             exportFunction: 'window.redditImageRecreationExportLog()'
         });

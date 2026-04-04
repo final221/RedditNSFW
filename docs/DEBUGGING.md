@@ -22,7 +22,7 @@
 - media-type resolution and preload outcomes
 - Main failure points:
 - post JSON fetch failure
-- media URL extraction failure or low-quality source ranking
+- media URL extraction failure or low-quality source ranking, especially when a lower guessed video variant wins before the declared Reddit source
 - incorrect rewriting of `external-preview.redd.it` URLs into invalid `i.redd.it` URLs
 - preload failure
 - direct native unblur flipping the blur state/property without Reddit actually revealing usable media
@@ -37,4 +37,5 @@
 - For unstable cases where Reddit native media appears intermittently, check whether the trace contains `fallback-build-success` without a later `fallback-yielded-to-native`.
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
+
 

@@ -1,4 +1,19 @@
 # Changelog
+## 0.9.0 - 2026-04-04T22:13:53.142Z
+Previous: 0.8.0
+Commit: c551877
+Changes:
+- Yield recreation fallback back to native media
+- Add exportable debug trace for recreation diagnosis
+- Improve recreation source quality and permalink normalization
+- Require visible native media before suppressing recreation
+- Integrate native auto-unblur into image recreation
+- Suppress recreation over native revealed embeds
+- Add gallery reconstruction support to image recreation
+- Harden image recreation media detection and video playback recovery
+- Skip recreation when Reddit gallery media is already usable
+- Prefer native Reddit media before fallback recreation
+
 ## 0.8.0 - 2026-04-04T22:06:59.434Z
 Previous: 0.7.0
 Commit: 9380bbc
