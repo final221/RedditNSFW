@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.23
+// @version      1.24
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -822,6 +822,49 @@
         });
     }
 
+    function snapshotImageState(img, extra = {}) {
+        if (!(img instanceof HTMLImageElement)) {
+            return extra;
+        }
+
+        const rect = typeof img.getBoundingClientRect === 'function' ? img.getBoundingClientRect() : null;
+        const computed = typeof getComputedStyle === 'function' ? getComputedStyle(img) : null;
+
+        return {
+            ...extra,
+            src: img.currentSrc || img.src || null,
+            complete: img.complete,
+            naturalWidth: img.naturalWidth || 0,
+            naturalHeight: img.naturalHeight || 0,
+            clientWidth: img.clientWidth || 0,
+            clientHeight: img.clientHeight || 0,
+            rectWidth: rect ? Math.round(rect.width) : 0,
+            rectHeight: rect ? Math.round(rect.height) : 0,
+            display: computed?.display || null,
+            visibility: computed?.visibility || null,
+            opacity: computed?.opacity || null
+        };
+    }
+
+    function attachImageRenderDebug(img, eventName, details = {}) {
+        if (!(img instanceof HTMLImageElement)) return;
+
+        const record = (phase, extra = {}) => {
+            recordDebug(eventName, snapshotImageState(img, {
+                phase,
+                ...details,
+                ...extra
+            }));
+        };
+
+        img.addEventListener('load', () => record('load'), { once: true });
+        img.addEventListener('error', () => record('error'), { once: true });
+
+        setTimeout(() => record('after-insert'), 0);
+        setTimeout(() => record('after-500ms'), 500);
+        setTimeout(() => record('after-1500ms'), 1500);
+    }
+
     async function preloadVideo(url) {
         return await new Promise((resolve) => {
             const video = document.createElement('video');
@@ -925,6 +968,11 @@
             visibility:visible !important;
         `;
 
+        attachImageRenderDebug(img, 'fallback-image-state', {
+            mode: 'single',
+            clickHref: clickHref || null
+        });
+
         anchor.appendChild(img);
         layer.appendChild(anchor);
         host.appendChild(layer);
@@ -1026,6 +1074,17 @@
             image.src = item.src;
             image.alt = item.alt || altText || '';
             counter.textContent = `${currentIndex + 1} / ${media.items.length}`;
+            recordDebug('gallery-render-index', {
+                index: currentIndex,
+                total: media.items.length,
+                src: item.src
+            });
+            attachImageRenderDebug(image, 'fallback-image-state', {
+                mode: 'gallery',
+                index: currentIndex,
+                total: media.items.length,
+                clickHref: clickHref || null
+            });
         };
 
         prevButton.addEventListener('click', (event) => {
@@ -1442,4 +1501,8 @@
         start();
     }
 })();
+
+
+
+
 

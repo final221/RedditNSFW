@@ -1,4 +1,19 @@
 # Changelog
+## 0.13.1 - 2026-04-04T22:55:45.867Z
+Previous: 0.13.0
+Commit: 3e36d88
+Changes:
+- Prefer preview image sources before direct gallery rewrites
+- Recover lost fallback layers after Reddit rerenders
+- Cap guessed video ladder before deeper discovery
+- Expand recreation trace for pre-build skip diagnosis
+- Prefer declared video source before lower guesses
+- Yield recreation fallback back to native media
+- Add exportable debug trace for recreation diagnosis
+- Improve recreation source quality and permalink normalization
+- Require visible native media before suppressing recreation
+- Integrate native auto-unblur into image recreation
+
 ## 0.13.0 - 2026-04-04T22:48:04.954Z
 Previous: 0.12.0
 Commit: 7030ab0
