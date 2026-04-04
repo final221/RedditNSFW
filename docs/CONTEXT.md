@@ -12,6 +12,7 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 
 ## Editing rule
 - Change maintained behavior in `src/userscripts/`.
+- When a maintained `.user.js` file changes, bump its Tampermonkey `@version` in the same change.
 - Keep the root `.txt` files only as preserved raw references unless the user explicitly wants them updated too.
 
 ## Verify surface

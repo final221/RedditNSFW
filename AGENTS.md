@@ -43,11 +43,13 @@
 - Preferred workflow entrypoints are `agent:verify` and `agent:commit`.
 - `BUMP=none` is the local-only verify path. Use it for exploratory setup or docs-only validation when no release metadata change is wanted.
 - Doc-only changes still run `BUMP=none npm run agent:verify`. Do not skip verification in this repo.
+- Any change to a maintained `.user.js` file must also bump that script's Tampermonkey `@version` in the same change, even when `BUMP=none`.
 - When reporting verification, include any warnings or skipped checks.
 - Documentation sync is mandatory whenever script behavior, config flags, debug hooks, file layout, or workflow changes.
 
 ## Structural contracts
 - Every maintained userscript file must keep a valid Tampermonkey header block.
+- Every maintained userscript change must update that file's `@version` header so Tampermonkey can detect updates.
 - Root `.txt` files are preserved intake references. Maintained changes belong in `src/userscripts/` unless the user explicitly asks to update the raw baselines too.
 - `src/script-catalog.js` is the source of truth for generated script docs and README script inventory.
 - Generated files must be updated in the same change: `docs/SCRIPTS.md`, `docs/CHANGELOG.md`, and `build/version.txt` when applicable.

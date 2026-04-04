@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none

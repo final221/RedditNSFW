@@ -8,6 +8,7 @@ const ROOT = path.join(__dirname, "..");
 const headerChecks = [
   "// ==UserScript==",
   "@name",
+  "@version",
   "@match",
   "@run-at",
   "// ==/UserScript=="
