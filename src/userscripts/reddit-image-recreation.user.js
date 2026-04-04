@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.8
+// @version      1.9
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -12,8 +12,13 @@
     'use strict';
 
     const DEBUG = false;
+    const CONFIG = {
+        fallbackDelayMs: 1200,
+        preferNativeReveal: true
+    };
     let lastUrl = location.href;
     const mediaCache = new Map();
+    const fallbackTimers = new WeakMap();
 
     function log(...args) {
         if (DEBUG) console.log('[Reddit External Unblur]', ...args);
@@ -356,6 +361,71 @@
         delete host.dataset.tmMediaBuilt;
     }
 
+    function hasNativeRevealControl(host) {
+        if (!(host instanceof Element) || !CONFIG.preferNativeReveal) return false;
+
+        const candidates = host.querySelectorAll('button, [role="button"]');
+        for (const node of candidates) {
+            if (!(node instanceof Element)) continue;
+            if (node.closest('.tm-nsfw-overlay') || node.closest('.tm-unblur-media-layer')) continue;
+
+            const text = (node.textContent || '').trim().toLowerCase();
+            if (
+                text.includes('view') ||
+                text.includes('reveal') ||
+                text.includes('show') ||
+                text.includes('continue') ||
+                text.includes('yes') ||
+                text.includes('nsfw')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    function hasNativeResolvedMedia(host, blurContainer) {
+        if (!(host instanceof Element)) return false;
+
+        const nativeVideo = host.querySelector('video:not(.tm-unblur-media-layer video)');
+        if (nativeVideo && !nativeVideo.closest('.tm-unblur-media-layer')) {
+            return true;
+        }
+
+        const mediaNodes = host.querySelectorAll('img, video, iframe');
+        for (const node of mediaNodes) {
+            if (!(node instanceof Element)) continue;
+            if (node.closest('.tm-unblur-media-layer')) continue;
+            if (blurContainer instanceof Element && blurContainer.contains(node)) continue;
+            return true;
+        }
+
+        if (blurContainer && blurContainer.blurred === false) {
+            return true;
+        }
+
+        return false;
+    }
+
+    function shouldBuildFallback(host, blurContainer) {
+        if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
+        if ((blurContainer.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return false;
+        if (host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1') return false;
+        if (hasNativeResolvedMedia(host, blurContainer)) return false;
+        if (hasNativeRevealControl(host)) return false;
+        return true;
+    }
+
+    function clearPendingFallback(host) {
+        if (!(host instanceof Element)) return;
+        const timer = fallbackTimers.get(host);
+        if (timer) {
+            clearTimeout(timer);
+            fallbackTimers.delete(host);
+        }
+    }
+
     async function preloadImage(url) {
         return await new Promise((resolve) => {
             const img = new Image();
@@ -511,9 +581,12 @@
         const host = getOverlayHost(blurContainer);
         if (!host) return;
 
-        if (host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1') return;
-        host.dataset.tmOverlayBuilt = '1';
+        if (!shouldBuildFallback(host, blurContainer)) {
+            clearPendingFallback(host);
+            return;
+        }
 
+        host.dataset.tmOverlayBuilt = '1';
         forceRelative(host);
 
         const overlay = document.createElement('div');
@@ -592,6 +665,30 @@
         host.appendChild(overlay);
     }
 
+    function scheduleFallbackBuild(el, img, postHref) {
+        const host = getOverlayHost(el);
+        if (!host) return;
+
+        clearPendingFallback(host);
+
+        if (!shouldBuildFallback(host, el)) {
+            if (host.dataset.tmOverlayBuilt === '1' && hasNativeResolvedMedia(host, el)) {
+                removeCustomLayer(host);
+            }
+            return;
+        }
+
+        const timer = setTimeout(() => {
+            fallbackTimers.delete(host);
+            if (!shouldBuildFallback(host, el)) {
+                return;
+            }
+            buildOverlay(el, img, postHref);
+        }, CONFIG.fallbackDelayMs);
+
+        fallbackTimers.set(host, timer);
+    }
+
     function processBlurredContainer(el) {
         if (!(el instanceof Element)) return;
         if ((el.getAttribute('reason') || '').toLowerCase() !== 'nsfw') return;
@@ -600,7 +697,7 @@
         const img = el.querySelector('img');
         const postHref = resolvePostHref(el, host);
 
-        buildOverlay(el, img, postHref);
+        scheduleFallbackBuild(el, img, postHref);
     }
 
     function scan(root = document) {

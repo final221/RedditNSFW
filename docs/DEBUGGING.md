@@ -17,6 +17,7 @@
 - preload failure
 - video or gif-like posts resolving to the wrong media type or URL
 - Reddit DOM changes that prevent overlay attachment
+- native Reddit controls/media being present when the fallback heuristic expected a broken state
 
 ## First debugging pass
 - Confirm which script line is responsible for the current issue.

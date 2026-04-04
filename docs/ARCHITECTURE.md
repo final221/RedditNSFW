@@ -12,7 +12,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 ### External media reconstruction
 - Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
-- Primary mechanisms: fetch post JSON, resolve image or video URLs, preload resolved media, inject custom overlay/media layer
+- Primary mechanisms: prefer Reddit's own reveal/media path first, then fetch post JSON, resolve image or video URLs, preload resolved media, and inject a custom fallback layer only when native handling still looks blocked
 
 ## Shared assumptions
 - Runtime is Tampermonkey in the browser.
