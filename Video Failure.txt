@@ -1,0 +1,142 @@
+<div class="relative overflow-hidden pointer-cursor  mb-xs  isolate bg-black xs:rounded-4" slot="post-media-container" data-tm-media-built="1">
+      
+      <div class="pointer-events-none absolute inset-0 z-[3] border-sm border-solid border-neutral-border-weak xs:rounded-4 border-x-0 xs:border-x-sm"></div>
+      <shreddit-aspect-ratio class="visible nd:block nd:aspect-square nd:pb-0" id="t3_1sbzrnp-aspect-ratio" is-nsfw-blocked="true" style="
+    --aspect-ratio: 1;
+    --max-height: max(300px, min(100%, calc(100vh - calc(var(--shreddit-header-height) + 250px))));
+    --min-height: 220px;
+    ">
+    <xpromo-nsfw-blocking-container>
+      
+    <shreddit-blurred-container mode="slot" reason="nsfw">
+      <div slot="blurred"> <div class="h-full w-full object-contain  bg-black  border-none xs:rounded-t-[16px] relative overflow-hidden">
+       <img alt="" role="presentation" class="absolute top-0 top-1/2 -translate-y-1/2 w-full opacity-30 object-cover scale-[1.2] post-background-image-filter" loading="eager" src="https://external-preview.redd.it/I4sCM1K8MLiJ-s-Iw_Tjtkd8rY1kf87iJWUlAn65WtU.jpeg?blur=40&amp;format=pjpg&amp;auto=webp&amp;s=e17b55c1a832cb64b15c9caa37b2d6d12652621d" style=""> 
+    <img id="post-image" alt="r/JOTCelebs - Sophie Turner" class="max-h-[100vw] h-full w-full object-contain relative" loading="eager" fetchpriority="high" src="https://external-preview.redd.it/I4sCM1K8MLiJ-s-Iw_Tjtkd8rY1kf87iJWUlAn65WtU.jpeg?blur=40&amp;format=pjpg&amp;auto=webp&amp;s=e17b55c1a832cb64b15c9caa37b2d6d12652621d" style="">
+  
+    </div>
+    <script nonce="">
+          function recordImagePerformanceMark() {
+            performance.mark('first-post-meaningful-paint');
+          }
+          document &&
+            document
+              .getElementById('post-image')
+              .addEventListener('load', recordImagePerformanceMark);
+        </script></div>
+      
+    </shreddit-blurred-container>
+  
+      <a rpl="" class="viewInApp rounded-1 uppercase shrink-0 [--button-color-text:var(--color-global-white)] [--button-border-color:var(--color-global-white)] no-underline hover:no-underline visited:no-underline active:no-underline overflow-hidden text-ellipsis whitespace-nowrap
+button-medium px-[calc(var(--rem12)-var(--button-border-width,0px))]
+button-secondary
+
+
+
+items-center justify-center
+button inline-flex " href="https://reddit.app.link/?referrer_domain=www.reddit.com&amp;referrer_url=%2Fr%2FJOTCelebs%2F" rel="nofollow" slot="view-in-app-button" actioned=""><span class="flex items-center justify-center">
+      
+      <span class="flex items-center gap-xs" actioned="">
+          View in app
+          
+    
+    
+    
+    
+  
+        </span>
+    </span>
+    </a>
+    </xpromo-nsfw-blocking-container>
+  </shreddit-aspect-ratio>
+      <div>
+            
+          </div>
+    <div class="tm-unblur-media-layer" style="position: absolute; inset: 0px; z-index: 9998; display: flex; align-items: center; justify-content: center; pointer-events: auto; background: transparent;"><video src="https://v.redd.it/l7vr4p0sq3tg1/CMAF_480.mp4" poster="https://external-preview.redd.it/I4sCM1K8MLiJ-s-Iw_Tjtkd8rY1kf87iJWUlAn65WtU.jpeg?auto=webp&amp;s=5aed9a61b06c1e7e4d5cf00d8c92b24d10a841f8" preload="auto" autoplay="" loop="" muted="" playsinline="" style="display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; background: rgb(0, 0, 0); opacity: 1 !important; visibility: visible !important;" data-tm-click-href="https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/"></video></div></div>
+
+download:
+
+Reddit Image Recreation Debug Log
+
+Generated: 2026-04-04T22:16:59.862Z
+
+Page: https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/sophie_turner/
+
+User agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:149.0) Gecko/20100101 Firefox/149.0
+
+
+
+[2026-04-04T22:16:52.856Z] script-start
+{
+  "version": "1.19",
+  "shortcut": "Alt+Shift+R",
+  "exportFunction": "window.redditImageRecreationExportLog()"
+}
+
+[2026-04-04T22:16:54.061Z] fetch-post-data
+{
+  "inputHref": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "normalizedHref": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "postPath": "/r/JOTCelebs/comments/1sbzrnp"
+}
+
+[2026-04-04T22:16:54.452Z] resolved-media
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "mediaType": "video"
+}
+
+[2026-04-04T22:16:54.452Z] video-candidates
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "candidates": [
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_2160.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_1440.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_1080.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_720.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_480.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_360.mp4",
+    "https://v.redd.it/l7vr4p0sq3tg1/CMAF_240.mp4"
+  ]
+}
+
+[2026-04-04T22:16:54.627Z] video-candidate-failed
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "candidate": "https://v.redd.it/l7vr4p0sq3tg1/CMAF_2160.mp4"
+}
+
+[2026-04-04T22:16:54.752Z] video-candidate-failed
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "candidate": "https://v.redd.it/l7vr4p0sq3tg1/CMAF_1440.mp4"
+}
+
+[2026-04-04T22:16:54.884Z] video-candidate-failed
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "candidate": "https://v.redd.it/l7vr4p0sq3tg1/CMAF_1080.mp4"
+}
+
+[2026-04-04T22:16:55.038Z] video-candidate-failed
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "candidate": "https://v.redd.it/l7vr4p0sq3tg1/CMAF_720.mp4"
+}
+
+[2026-04-04T22:16:55.069Z] video-candidate-selected
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "selected": "https://v.redd.it/l7vr4p0sq3tg1/CMAF_480.mp4"
+}
+
+[2026-04-04T22:16:55.070Z] fallback-build-success
+{
+  "normalizedPostUrl": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/",
+  "mediaType": "video"
+}
+
+[2026-04-04T22:16:59.862Z] export-debug-log
+{
+  "page": "https://www.reddit.com/r/JOTCelebs/comments/1sbzrnp/sophie_turner/",
+  "entries": 10
+}

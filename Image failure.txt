@@ -1,0 +1,17 @@
+<div class="relative overflow-hidden pointer-cursor  mb-xs  isolate bg-neutral-background xs:rounded-4" slot="post-media-container" data-tm-fallback-prev-min-height="" data-tm-fallback-min-height-applied="1" style="min-height: 1174px;" data-tm-media-built="1">
+      
+      <div class="pointer-events-none absolute inset-0 z-[3] border-sm border-solid border-neutral-border-weak xs:rounded-4 border-x-0 xs:border-x-sm"></div>
+      
+    <shreddit-blurred-container mode="slot" reason="nsfw">
+      <div slot="blurred"><div style="
+    max-height: 540px;
+  ">
+    <a href="/r/JOTCelebs/comments/1s6qgy2/selena_gomez/"><img src="https://preview.redd.it/vk1kcpeccyrg1.jpg?width=320&amp;crop=smart&amp;blur=40&amp;format=pjpg&amp;auto=webp&amp;s=66a95d921e41248a952a80add25480a1a405fbce" alt="r/JOTCelebs - Selena Gomez..... 🥵" class="mb-0 media-lightbox-img h-full w-full max-h-[100vw] object-contain mb-0 relative" loading="lazy"></a>
+  </div></div>
+      
+    </shreddit-blurred-container>
+  
+      <div>
+            
+          </div>
+    <div class="tm-unblur-media-layer" style="position: absolute; inset: 0px; z-index: 9998; display: flex; align-items: center; justify-content: center; pointer-events: auto; background: transparent;"><div style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; min-height: 1174px; aspect-ratio: 1080 / 1732;"><img loading="eager" decoding="sync" style="display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; filter: none !important; opacity: 1 !important; visibility: visible !important; cursor: pointer;" src="https://preview.redd.it/vk1kcpeccyrg1.jpg?width=1080&amp;format=pjpg&amp;auto=webp&amp;s=058529cb9651e6486391363dbfa31460e0723a32" alt="Selena Gomez..... 🥵"><button type="button" style="position: absolute; top: 50%; left: 12px; transform: translateY(-50%); appearance: none; border: medium; border-radius: 999px; width: 40px; height: 40px; background: rgba(0, 0, 0, 0.72); color: rgb(255, 255, 255); font: 700 18px / 1 sans-serif; cursor: pointer; box-shadow: rgba(0, 0, 0, 0.35) 0px 4px 14px;">&lt;</button><button type="button" style="position: absolute; top: 50%; right: 12px; transform: translateY(-50%); appearance: none; border: medium; border-radius: 999px; width: 40px; height: 40px; background: rgba(0, 0, 0, 0.72); color: rgb(255, 255, 255); font: 700 18px / 1 sans-serif; cursor: pointer; box-shadow: rgba(0, 0, 0, 0.35) 0px 4px 14px;">&gt;</button><div style="position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 6px 10px; border-radius: 999px; background: rgba(0, 0, 0, 0.72); color: rgb(255, 255, 255); font: 600 12px / 1 sans-serif; pointer-events: none;">1 / 3</div></div></div></div>
