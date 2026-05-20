@@ -4,6 +4,7 @@
 - `includeSpoilers`: extends handling beyond NSFW blur cases
 - `useClickFallback`: enables reveal-button fallback when direct property or attribute changes stop working
 - `toastMs`: controls the local toast lifetime
+- `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
 
 ## External reconstruction script knobs
 - `DEBUG`: enables console logging for URL-resolution, native unblur attempts, and rescan behavior

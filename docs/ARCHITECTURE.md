@@ -8,6 +8,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 - Entry: `src/userscripts/reddit-auto-unblur.user.js`
 - Purpose: remove or bypass Reddit's NSFW blur state when the native media container still works
 - Primary mechanisms: property flip, attribute removal, reveal-button fallback, mutation reprocessing
+- Observability: the script keeps a rolling in-memory debug trace and can export it as `reddit-auto-unblur-log.txt`, including start/toggle state, processed blur containers, reveal-click attempts, and a current page snapshot of matching Reddit blur containers
 
 ### External media reconstruction
 - Entry: `src/userscripts/reddit-image-recreation.user.js`

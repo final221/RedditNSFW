@@ -2,10 +2,19 @@
 
 ## Direct unblur script
 - Debug output is gated by local storage key `reddit-unblur-debug`.
+- A separate rolling in-memory trace is always available for live export.
 - Console prefix: `[Reddit Unblur]`
 - Runtime toggles:
 - `Alt+U` toggles the script on or off
 - `Alt+Shift+U` toggles debug logging
+- Export hooks:
+- `Alt+Shift+L` downloads `reddit-auto-unblur-log.txt`
+- `window.redditAutoUnblurExportLog()` triggers the same download manually
+- Exported trace data includes:
+- script start and toggle state
+- processed `shreddit-blurred-container` details
+- reveal-click attempts and misses
+- current page snapshot of matching Reddit blur containers
 
 ## External reconstruction script
 - Debug output is gated by the local `DEBUG` constant for console logging.
@@ -37,6 +46,7 @@
 ## First debugging pass
 - Confirm which script line is responsible for the current issue.
 - Check whether Reddit still renders a `shreddit-blurred-container`.
+- Export the direct unblur trace when the native blur container remains present but does not reveal cleanly.
 - Export the reconstruction trace before changing logic when the problem is live in the browser.
 - For unstable cases where Reddit native media appears intermittently, check whether the trace contains `fallback-build-success` without a later `fallback-yielded-to-native`.
 - For disappearing fallback cases, check whether the trace contains `fallback-layer-lost`.

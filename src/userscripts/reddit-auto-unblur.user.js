@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Auto Unblur
 // @namespace    https://tampermonkey.net/
-// @version      1.3
+// @version      1.4
 // @description  Unblurs Reddit Shreddit NSFW media, with toggle/debug/fallback support
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
@@ -20,8 +20,11 @@
     const CONFIG = {
         includeSpoilers: false,
         useClickFallback: true,
-        toastMs: 1800
+        toastMs: 1800,
+        debugLogMaxEntries: 400
     };
+
+    const debugEntries = [];
 
     function loadBool(key, fallback) {
         try {
@@ -46,6 +49,117 @@
             console.log("[Reddit Unblur]", ...args);
         }
     }
+
+    function describeElement(el) {
+        if (!(el instanceof Element)) {
+            return String(el);
+        }
+
+        const buttonTexts = Array.from(el.querySelectorAll("button, [role=\"button\"]"))
+            .slice(0, 8)
+            .map((button) => (button.textContent || "").trim())
+            .filter(Boolean);
+
+        return {
+            tag: el.tagName.toLowerCase(),
+            id: el.id || null,
+            className: el.className || null,
+            reason: el.getAttribute("reason"),
+            hasBlurredAttribute: el.hasAttribute("blurred"),
+            blurredProperty: typeof el.blurred === "undefined" ? null : el.blurred,
+            ariaLabel: el.getAttribute("aria-label"),
+            text: (el.textContent || "").trim().slice(0, 160),
+            revealButtons: buttonTexts
+        };
+    }
+
+    function toDebugString(details) {
+        if (details == null) {
+            return "";
+        }
+        if (typeof details === "string") {
+            return details;
+        }
+
+        try {
+            return JSON.stringify(details, (key, value) => {
+                if (value instanceof Element) {
+                    return describeElement(value);
+                }
+                if (value instanceof Document) {
+                    return "[document]";
+                }
+                if (value instanceof Error) {
+                    return {
+                        name: value.name,
+                        message: value.message,
+                        stack: value.stack
+                    };
+                }
+                return value;
+            }, 2);
+        } catch (err) {
+            return String(err?.message || details);
+        }
+    }
+
+    function recordDebug(event, details) {
+        const timestamp = new Date().toISOString();
+        const parts = [`[${timestamp}] ${event}`];
+        const detailText = toDebugString(details);
+        if (detailText) {
+            parts.push(detailText);
+        }
+
+        debugEntries.push(parts.join("\n"));
+        if (debugEntries.length > CONFIG.debugLogMaxEntries) {
+            debugEntries.splice(0, debugEntries.length - CONFIG.debugLogMaxEntries);
+        }
+
+        log(event, details);
+    }
+
+    function collectPageSnapshot() {
+        const containers = Array.from(document.querySelectorAll("shreddit-blurred-container[reason]"));
+        return {
+            page: location.href,
+            enabled,
+            debug,
+            includeSpoilers: CONFIG.includeSpoilers,
+            useClickFallback: CONFIG.useClickFallback,
+            matchingContainers: containers.length,
+            containers: containers.slice(0, 20).map(describeElement)
+        };
+    }
+
+    function exportDebugLog() {
+        recordDebug("export-debug-log", {
+            entries: debugEntries.length,
+            snapshot: collectPageSnapshot()
+        });
+
+        const lines = [
+            "Reddit Auto Unblur Debug Log",
+            `Generated: ${new Date().toISOString()}`,
+            `Page: ${location.href}`,
+            `User agent: ${navigator.userAgent}`,
+            "",
+            ...debugEntries
+        ];
+        const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = "reddit-auto-unblur-log.txt";
+        anchor.style.display = "none";
+        (document.body || document.documentElement).appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        showToast("Reddit Unblur log downloaded");
+    }
+
+    window.redditAutoUnblurExportLog = exportDebugLog;
 
     function showToast(message) {
         const old = document.getElementById("tm-reddit-unblur-toast");
@@ -103,11 +217,16 @@
                 text.includes("continue") ||
                 text.includes("yes")
             ) {
-                log("Fallback click:", text || node);
+                recordDebug("fallback-click", {
+                    text,
+                    button: node,
+                    container: el
+                });
                 node.click();
                 return true;
             }
         }
+        recordDebug("fallback-click-miss", { container: el });
         return false;
     }
 
@@ -129,7 +248,10 @@
                 changed = true;
             }
         } catch (err) {
-            log("Setting property failed:", err);
+            recordDebug("setting-property-failed", {
+                error: err,
+                container: el
+            });
         }
 
         if (el.hasAttribute("blurred")) {
@@ -141,7 +263,7 @@
             tryClickReveal(el);
         }
 
-        log("Processed blurred container:", { reason, changed, el });
+        recordDebug("processed-blurred-container", { reason, changed, container: el });
         return changed;
     }
 
@@ -206,7 +328,7 @@
         enabled = !enabled;
         saveBool(STORAGE_KEYS.enabled, enabled);
         showToast("Reddit Unblur: " + (enabled ? "ON" : "OFF"));
-        log("Enabled set to", enabled);
+        recordDebug("toggle-enabled", { enabled });
 
         if (enabled) {
             scheduleScan();
@@ -217,7 +339,7 @@
         debug = !debug;
         saveBool(STORAGE_KEYS.debug, debug);
         showToast("Reddit Unblur debug: " + (debug ? "ON" : "OFF"));
-        log("Debug set to", debug);
+        recordDebug("toggle-debug", { debug });
     }
 
     document.addEventListener("keydown", (event) => {
@@ -232,6 +354,12 @@
         if (event.altKey && event.shiftKey && key === "u") {
             event.preventDefault();
             toggleDebug();
+            return;
+        }
+
+        if (event.altKey && event.shiftKey && key === "l") {
+            event.preventDefault();
+            exportDebugLog();
         }
     });
 
@@ -249,7 +377,7 @@
             });
         }
 
-        log("Script started", {
+        recordDebug("script-started", {
             enabled,
             debug,
             includeSpoilers: CONFIG.includeSpoilers,

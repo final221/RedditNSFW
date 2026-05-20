@@ -1,4 +1,19 @@
 # Changelog
+## 0.13.4 - 2026-05-20T22:34:50.580Z
+Previous: 0.13.3
+Commit: 06f6703
+Changes:
+- Clamp fallback layout to native height caps
+- Seed collapsed fallback layout from media dimensions
+- Add fallback image render-state export diagnostics
+- Prefer preview image sources before direct gallery rewrites
+- Recover lost fallback layers after Reddit rerenders
+- Cap guessed video ladder before deeper discovery
+- Expand recreation trace for pre-build skip diagnosis
+- Prefer declared video source before lower guesses
+- Yield recreation fallback back to native media
+- Add exportable debug trace for recreation diagnosis
+
 ## 0.13.3 - 2026-04-04T23:08:15.310Z
 Previous: 0.13.2
 Commit: 5581c40

@@ -15,10 +15,10 @@ Runtime: Tampermonkey on reddit.com and sh.reddit.com
 - File: `src/userscripts/reddit-auto-unblur.user.js`
 - Source note: Imported from Unblur.txt
 - Role: Primary script for direct blur removal when Reddit still renders the native media container correctly.
-- Strategy: Flip the blurred state directly, remove the blur attribute, and fall back to clicking reveal-style controls.
+- Strategy: Flip the blurred state directly, remove the blur attribute, fall back to clicking reveal-style controls, and keep an exportable field-debug trace for failed live cases.
 - Hosts: `https://www.reddit.com/*`, `https://sh.reddit.com/*`
-- Knobs: `includeSpoilers`, `useClickFallback`, `toastMs`
-- Debug: Alt+U toggles the script on or off | Alt+Shift+U toggles debug logging | Console prefix: [Reddit Unblur]
+- Knobs: `includeSpoilers`, `useClickFallback`, `toastMs`, `debugLogMaxEntries`
+- Debug: Alt+U toggles the script on or off | Alt+Shift+U toggles debug logging | Console prefix: [Reddit Unblur] | Alt+Shift+L downloads reddit-auto-unblur-log.txt | window.redditAutoUnblurExportLog() triggers the same download | Exported traces include start/toggle state, processed blur containers, reveal-click attempts, and a current page snapshot of matching Reddit blur containers
 
 ## Reddit Image Recreation
 - Id: `imageRecreation`

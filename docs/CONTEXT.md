@@ -20,6 +20,9 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 - This repo expects to be inside a git repo before normal verify/commit use.
 
 ## Field debugging
+- `src/userscripts/reddit-auto-unblur.user.js` keeps a rolling in-memory trace for direct blur-removal diagnosis.
+- `Alt+Shift+L` downloads `reddit-auto-unblur-log.txt` from the current page.
+- `window.redditAutoUnblurExportLog()` triggers the same direct-unblur download path manually.
 - `src/userscripts/reddit-image-recreation.user.js` now keeps a rolling in-memory trace for live failure diagnosis.
 - `Alt+Shift+R` downloads `reddit-image-recreation-log.txt` from the current page.
 - `window.redditImageRecreationExportLog()` triggers the same download path manually.
