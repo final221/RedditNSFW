@@ -8,7 +8,7 @@
 - Exported trace data includes:
 - script start and toggle state
 - processed `shreddit-blurred-container` details
-- reveal-click attempts and misses
+- skipped reveal-click state when automated clicking is disabled
 - current page snapshot of matching Reddit blur containers
 
 ## External reconstruction script
@@ -25,6 +25,7 @@
 - fallback image render-state snapshots, including load/error, natural dimensions, rendered box size, and computed visibility
 - media-type resolution and preload outcomes, including why fallback was skipped before fetch/build
 - Main failure points:
+- Reddit login/register prompts appearing means automated reveal clicking should remain disabled
 - post JSON fetch failure
 - media URL extraction failure or low-quality source ranking, especially when a lower guessed video variant wins before the declared Reddit source
 - fallback gallery or image layers building successfully while the recreated `<img>` loads but the host/frame collapses to zero height, expands past Reddit''s intended media cap, or the image becomes visually hidden after insertion

@@ -1,4 +1,19 @@
 # Changelog
+## 0.15.0 - 2026-05-20T22:51:48.313Z
+Previous: 0.14.0
+Commit: 12c9985
+Changes:
+- Combine RedditNSFW log export
+- k
+- Add direct unblur log export
+- Clamp fallback layout to native height caps
+- Seed collapsed fallback layout from media dimensions
+- Add fallback image render-state export diagnostics
+- Prefer preview image sources before direct gallery rewrites
+- Recover lost fallback layers after Reddit rerenders
+- Cap guessed video ladder before deeper discovery
+- Expand recreation trace for pre-build skip diagnosis
+
 ## 0.14.0 - 2026-05-20T22:44:04.087Z
 Previous: 0.13.4
 Commit: 5f9fedd

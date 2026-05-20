@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Auto Unblur
 // @namespace    https://tampermonkey.net/
-// @version      1.5
+// @version      1.6
 // @description  Unblurs Reddit Shreddit NSFW media, with toggle/fallback/report support
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
@@ -18,7 +18,7 @@
 
     const CONFIG = {
         includeSpoilers: false,
-        useClickFallback: true,
+        useClickFallback: false,
         toastMs: 1800,
         debugLogMaxEntries: 400
     };

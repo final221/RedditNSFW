@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.27
+// @version      1.28
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -13,8 +13,8 @@
 
     const CONFIG = {
         fallbackDelayMs: 1200,
-        preferNativeReveal: true,
-        useClickFallback: true,
+        preferNativeReveal: false,
+        useClickFallback: false,
         videoRecoveryTimeoutMs: 1800,
         debugLogMaxEntries: 400
     };

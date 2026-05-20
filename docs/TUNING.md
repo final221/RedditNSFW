@@ -2,15 +2,15 @@
 
 ## Direct unblur script knobs
 - `includeSpoilers`: extends handling beyond NSFW blur cases
-- `useClickFallback`: enables reveal-button fallback when direct property or attribute changes stop working
+- `useClickFallback`: disabled by default so Reddit login/register prompts are not opened repeatedly
 - `toastMs`: controls the local toast lifetime
 - `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
 
 ## External reconstruction script knobs
 - `mediaCache`: memoizes per-post JSON lookups within the page session
 - `fallbackDelayMs`: waits briefly before patching so Reddit-native reveal/media handling gets first priority
-- `preferNativeReveal`: skips automatic patching when Reddit still exposes its own reveal controls
-- `useClickFallback`: clicks Reddit reveal-style controls when direct blur-state flips do not take effect
+- `preferNativeReveal`: disabled by default so login-gated Reddit reveal controls do not suppress reconstruction
+- `useClickFallback`: disabled by default so Reddit login/register prompts are not opened repeatedly
 - `videoRecoveryTimeoutMs`: promotes fallback videos to visible controls when autoplay does not become usable quickly
 - `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
 - Video source ranking: probes a capped higher-quality ladder (`1080`, `720`), then the declared Reddit source, then lower fallbacks, and also checks the sibling `CMAF`/`DASH` family before giving up
