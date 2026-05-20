@@ -7,7 +7,6 @@
 - `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
 
 ## External reconstruction script knobs
-- `DEBUG`: enables console logging for URL-resolution, native unblur attempts, and rescan behavior
 - `mediaCache`: memoizes per-post JSON lookups within the page session
 - `fallbackDelayMs`: waits briefly before patching so Reddit-native reveal/media handling gets first priority
 - `preferNativeReveal`: skips automatic patching when Reddit still exposes its own reveal controls

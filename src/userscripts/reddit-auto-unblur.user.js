@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Reddit Auto Unblur
 // @namespace    https://tampermonkey.net/
-// @version      1.4
-// @description  Unblurs Reddit Shreddit NSFW media, with toggle/debug/fallback support
+// @version      1.5
+// @description  Unblurs Reddit Shreddit NSFW media, with toggle/fallback/report support
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -13,8 +13,7 @@
     "use strict";
 
     const STORAGE_KEYS = {
-        enabled: "reddit-unblur-enabled",
-        debug: "reddit-unblur-debug"
+        enabled: "reddit-unblur-enabled"
     };
 
     const CONFIG = {
@@ -24,7 +23,7 @@
         debugLogMaxEntries: 400
     };
 
-    const debugEntries = [];
+    const REPORTER_KEY = "__redditNSFWLogReporter";
 
     function loadBool(key, fallback) {
         try {
@@ -39,15 +38,6 @@
         try {
             localStorage.setItem(key, String(value));
         } catch { }
-    }
-
-    let enabled = loadBool(STORAGE_KEYS.enabled, true);
-    let debug = loadBool(STORAGE_KEYS.debug, false);
-
-    function log(...args) {
-        if (debug) {
-            console.log("[Reddit Unblur]", ...args);
-        }
     }
 
     function describeElement(el) {
@@ -73,49 +63,124 @@
         };
     }
 
-    function toDebugString(details) {
-        if (details == null) {
-            return "";
+    function describeLogValue(value) {
+        if (value instanceof Element) {
+            return describeElement(value);
         }
-        if (typeof details === "string") {
-            return details;
+        if (value instanceof Document) {
+            return "[document]";
+        }
+        if (value instanceof Error) {
+            return {
+                name: value.name,
+                message: value.message,
+                stack: value.stack
+            };
+        }
+        return value;
+    }
+
+    function getSharedLogReporter() {
+        if (window[REPORTER_KEY]) {
+            return window[REPORTER_KEY];
         }
 
-        try {
-            return JSON.stringify(details, (key, value) => {
-                if (value instanceof Element) {
-                    return describeElement(value);
+        const reporter = {
+            entries: [],
+            maxEntries: CONFIG.debugLogMaxEntries * 2,
+            snapshots: {},
+            stringify(details) {
+                if (details == null) {
+                    return "";
                 }
-                if (value instanceof Document) {
-                    return "[document]";
+                if (typeof details === "string") {
+                    return details;
                 }
-                if (value instanceof Error) {
-                    return {
-                        name: value.name,
-                        message: value.message,
-                        stack: value.stack
-                    };
+
+                try {
+                    return JSON.stringify(details, (key, value) => describeLogValue(value), 2);
+                } catch (err) {
+                    return String(err?.message || details);
                 }
-                return value;
-            }, 2);
-        } catch (err) {
-            return String(err?.message || details);
-        }
+            },
+            registerSource(source, snapshotFn) {
+                this.snapshots[source] = snapshotFn;
+            },
+            record(source, event, details) {
+                const timestamp = new Date().toISOString();
+                this.entries.push({
+                    timestamp,
+                    source,
+                    event,
+                    details: this.stringify(details)
+                });
+                if (this.entries.length > this.maxEntries) {
+                    this.entries.splice(0, this.entries.length - this.maxEntries);
+                }
+            },
+            export() {
+                this.record("reporter", "export-log", {
+                    page: location.href,
+                    entries: this.entries.length
+                });
+
+                const lines = [
+                    "RedditNSFW Combined Debug Log",
+                    `Generated: ${new Date().toISOString()}`,
+                    `Page: ${location.href}`,
+                    `User agent: ${navigator.userAgent}`,
+                    "",
+                    "Snapshots"
+                ];
+
+                for (const [source, snapshotFn] of Object.entries(this.snapshots)) {
+                    let snapshot;
+                    try {
+                        snapshot = snapshotFn();
+                    } catch (err) {
+                        snapshot = { error: err?.message || String(err) };
+                    }
+                    lines.push(`## ${source}`, this.stringify(snapshot));
+                }
+
+                lines.push("", "Events");
+                for (const entry of this.entries) {
+                    lines.push(`[${entry.timestamp}] ${entry.source}: ${entry.event}`);
+                    if (entry.details) {
+                        lines.push(entry.details);
+                    }
+                    lines.push("");
+                }
+
+                const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+                const objectUrl = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = objectUrl;
+                anchor.download = "reddit-nsfw-log.txt";
+                anchor.style.display = "none";
+                (document.body || document.documentElement).appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+                return "reddit-nsfw-log.txt";
+            }
+        };
+
+        window[REPORTER_KEY] = reporter;
+        window.redditNSFWExportLog = () => reporter.export();
+        window.log = window.redditNSFWExportLog;
+        return reporter;
+    }
+
+    const sharedLog = getSharedLogReporter();
+    let enabled = loadBool(STORAGE_KEYS.enabled, true);
+
+    function log(...args) {
+        console.log("[Reddit Unblur]", ...args);
     }
 
     function recordDebug(event, details) {
-        const timestamp = new Date().toISOString();
-        const parts = [`[${timestamp}] ${event}`];
-        const detailText = toDebugString(details);
-        if (detailText) {
-            parts.push(detailText);
-        }
-
-        debugEntries.push(parts.join("\n"));
-        if (debugEntries.length > CONFIG.debugLogMaxEntries) {
-            debugEntries.splice(0, debugEntries.length - CONFIG.debugLogMaxEntries);
-        }
-
+        sharedLog.record("direct-unblur", event, details);
         log(event, details);
     }
 
@@ -124,7 +189,6 @@
         return {
             page: location.href,
             enabled,
-            debug,
             includeSpoilers: CONFIG.includeSpoilers,
             useClickFallback: CONFIG.useClickFallback,
             matchingContainers: containers.length,
@@ -132,34 +196,14 @@
         };
     }
 
-    function exportDebugLog() {
-        recordDebug("export-debug-log", {
-            entries: debugEntries.length,
-            snapshot: collectPageSnapshot()
-        });
-
-        const lines = [
-            "Reddit Auto Unblur Debug Log",
-            `Generated: ${new Date().toISOString()}`,
-            `Page: ${location.href}`,
-            `User agent: ${navigator.userAgent}`,
-            "",
-            ...debugEntries
-        ];
-        const blob = new Blob([lines.join("\n\n")], { type: "text/plain;charset=utf-8" });
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = "reddit-auto-unblur-log.txt";
-        anchor.style.display = "none";
-        (document.body || document.documentElement).appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
-        showToast("Reddit Unblur log downloaded");
+    function exportCombinedLog() {
+        const fileName = sharedLog.export();
+        showToast("RedditNSFW log downloaded");
+        return fileName;
     }
 
-    window.redditAutoUnblurExportLog = exportDebugLog;
+    sharedLog.registerSource("direct-unblur", collectPageSnapshot);
+    window.redditAutoUnblurExportLog = exportCombinedLog;
 
     function showToast(message) {
         const old = document.getElementById("tm-reddit-unblur-toast");
@@ -335,13 +379,6 @@
         }
     }
 
-    function toggleDebug() {
-        debug = !debug;
-        saveBool(STORAGE_KEYS.debug, debug);
-        showToast("Reddit Unblur debug: " + (debug ? "ON" : "OFF"));
-        recordDebug("toggle-debug", { debug });
-    }
-
     document.addEventListener("keydown", (event) => {
         const key = event.key.toLowerCase();
 
@@ -349,17 +386,6 @@
             event.preventDefault();
             toggleEnabled();
             return;
-        }
-
-        if (event.altKey && event.shiftKey && key === "u") {
-            event.preventDefault();
-            toggleDebug();
-            return;
-        }
-
-        if (event.altKey && event.shiftKey && key === "l") {
-            event.preventDefault();
-            exportDebugLog();
         }
     });
 
@@ -379,7 +405,6 @@
 
         recordDebug("script-started", {
             enabled,
-            debug,
             includeSpoilers: CONFIG.includeSpoilers,
             useClickFallback: CONFIG.useClickFallback
         });

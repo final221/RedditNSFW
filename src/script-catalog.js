@@ -16,10 +16,9 @@ const SCRIPT_CATALOG = {
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Alt+U toggles the script on or off",
-        "Alt+Shift+U toggles debug logging",
         "Console prefix: [Reddit Unblur]",
-        "Alt+Shift+L downloads reddit-auto-unblur-log.txt",
-        "window.redditAutoUnblurExportLog() triggers the same download",
+        "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
+        "window.redditNSFWExportLog(), window.redditAutoUnblurExportLog(), and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include start/toggle state, processed blur containers, reveal-click attempts, and a current page snapshot of matching Reddit blur containers"
       ],
       knobs: ["includeSpoilers", "useClickFallback", "toastMs", "debugLogMaxEntries"]
@@ -32,15 +31,14 @@ const SCRIPT_CATALOG = {
       strategy: "Auto-flip the native blur state first, optionally click Reddit reveal controls, normalize post URLs, rank capped Reddit video guesses while preferring the declared Reddit source ahead of lower guessed variants, prefer resolved preview/media image URLs before fabricating direct `i.redd.it` links, seed fallback layout from blurred or preloaded media dimensions when Reddit collapses the media host, while respecting native max-height caps, auto-build a replacement layer only when native media still fails, yield back when Reddit native media resolves later, recover when Reddit rerenders away a built fallback layer, and keep an exportable field-debug trace for failed live cases.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
-        "Local DEBUG constant gates console logging",
         "Console prefix: [Reddit External Unblur]",
-        "Alt+Shift+R downloads reddit-image-recreation-log.txt",
-        "window.redditImageRecreationExportLog() triggers the same download",
+        "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
+        "window.redditNSFWExportLog(), window.redditAutoUnblurExportLog(), and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, fallback layout seeding details and height caps, fallback image render-state snapshots, native handoff events, and lost-layer recovery events",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["DEBUG", "mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
     }
   }
 };

@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **0.13.4**
+Current: **0.14.0**
 
 RedditNSFW is a Reddit/Tampermonkey userscript repo focused on two related but separate problems on modern Reddit surfaces:
 - direct NSFW blur removal when Reddit still renders the media container correctly
@@ -26,8 +26,8 @@ The maintained script entries live under `src/userscripts/`.
 - Root `.txt` files are preserved as raw intake/reference material, not the primary maintained entries.
 
 ## Field Logs
-- Direct unblur: `Alt+Shift+L` or `window.redditAutoUnblurExportLog()` downloads `reddit-auto-unblur-log.txt`.
-- Image recreation: `Alt+Shift+R` or `window.redditImageRecreationExportLog()` downloads `reddit-image-recreation-log.txt`.
+- Run `log()` in the browser console on Reddit to download `reddit-nsfw-log.txt`.
+- The file combines data from every loaded RedditNSFW script on the page.
 
 ## Workflow
 - Run `BUMP=patch|minor|major|none npm run agent:verify`.
