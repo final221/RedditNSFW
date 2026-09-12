@@ -39,8 +39,5 @@
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
 
-
-
-
-
-
+## Recovery failures
+`fetch-post-data-failed` records HTTP, network, or JSON errors; these failures are evicted so Try again can fetch afresh. `image-preload-timeout` records an image that exceeded its preload deadline. `fallback-build-error` records unexpected build exceptions and restores Try again. Startup reports userscript version 1.29. Native media placeholders no longer count as a successful reveal; cross-origin iframe playback still cannot be verified.

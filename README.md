@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.0.0**
+Current: **1.1.0**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
@@ -32,3 +32,6 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - GitHub account: `final221`
 - Default repo target: `git@github.com:final221/RedditNSFW.git`
 - Default branch: `main`
+
+## Recovery behavior
+Image Recreation 1.29 checks native image/video visibility and readiness before yielding, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.

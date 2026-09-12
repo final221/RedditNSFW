@@ -22,6 +22,5 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 - `log()` in the browser console downloads `reddit-nsfw-log.txt` from the current page.
 - The exported log is intended for copy-paste back into the repo discussion when a Reddit surface fails in the browser. It combines direct-unblur state with reconstruction events, including unstable cases where the fallback may build first and then yield back to native Reddit media later, no-op cases where fallback is skipped before fetch/build, and image cases where the recreated `<img>` exists in DOM but still does not visibly render or only becomes visible after the fallback seeds layout into a collapsed media host while honoring Reddit''s own height cap.
 
-
-
-
+## Recovery regression checks
+`build/check-media-recovery.js` runs isolated checks against the real userscript helpers for request retries and caching, query-bearing video URLs, native visibility/readiness, and image preload cleanup. `npm test` runs these alongside syntax/header checks; it does not validate live Reddit rendering.

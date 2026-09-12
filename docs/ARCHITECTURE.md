@@ -20,9 +20,5 @@ RedditNSFW maintains one browser-side userscript. Image Recreation owns both nat
 - `build/check-userscripts.js` performs local syntax and header validation for maintained userscripts.
 - `build/sync-docs.js` regenerates the script reference doc and README script summary from the catalog.
 
-
-
-
-
-
-
+## Recovery safeguards
+Native images must be loaded with nonzero natural dimensions; videos must have current frame data and no media error. Both need a nonzero rendered box and visible ancestors, including assigned slots and shadow hosts. Loader placeholders alone do not suppress reconstruction. Visible iframes with a source remain a heuristic because cross-origin playback state is inaccessible. Failed or empty post JSON results are evicted while successful and in-flight requests remain shared. Video variants modify the URL pathname and preserve query/hash components. Image preloads clean up listeners and settle on success, error, or timeout. Unexpected build exceptions restore the retry button.

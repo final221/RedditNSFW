@@ -12,7 +12,7 @@ const SCRIPT_CATALOG = {
       file: "src/userscripts/reddit-image-recreation.user.js",
       sourceNote: "Originally imported from image recreation.txt; the original intake is no longer in the working tree",
       role: "Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.",
-      strategy: "Auto-flip the native blur state first without clicking Reddit reveal/login controls, normalize post URLs, rank capped Reddit video guesses while preferring the declared Reddit source ahead of lower guessed variants, prefer resolved preview/media image URLs before fabricating direct `i.redd.it` links, seed fallback layout from blurred or preloaded media dimensions when Reddit collapses the media host, while respecting native max-height caps, auto-build a replacement layer only when native media still fails, yield back when Reddit native media resolves later, recover when Reddit rerenders away a built fallback layer, and keep an exportable field-debug trace for failed live cases.",
+      strategy: "Auto-flip the native blur state first without clicking Reddit reveal/login controls, normalize post URLs, rank capped Reddit video guesses while preferring the declared Reddit source ahead of lower guessed variants, prefer resolved preview/media image URLs before fabricating direct `i.redd.it` links, seed fallback layout from blurred or preloaded media dimensions when Reddit collapses the media host, while respecting native max-height caps, auto-build a replacement layer only when native media still fails, yield back when native images/videos are visible and loaded (visible sourced iframes remain a heuristic), recover when Reddit rerenders away a built fallback layer, retry failed post JSON requests, preserve video URL query parameters, bound image preload waits, and keep an exportable field-debug trace for failed live cases.",
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Console prefix: [Reddit External Unblur]",
@@ -22,7 +22,7 @@ const SCRIPT_CATALOG = {
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
     }
   }
 };
