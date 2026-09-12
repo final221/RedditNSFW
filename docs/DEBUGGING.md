@@ -41,3 +41,5 @@
 
 ## Recovery failures
 `fetch-post-data-failed` records HTTP, network, or JSON errors; these failures are evicted so Try again can fetch afresh. `image-preload-timeout` records an image that exceeded its preload deadline. `fallback-build-error` records unexpected build exceptions and restores Try again. Startup reports userscript version 1.29. Native media placeholders no longer count as a successful reveal; cross-origin iframe playback still cannot be verified.
+
+For a second animation showing along a fallback video edge, confirm userscript 1.30 or newer is installed. Its video layer uses an opaque black background and clips overflow to hide underlying Reddit media around the fitted video. This addresses layer bleed-through; it does not diagnose artifacts encoded in the video itself.

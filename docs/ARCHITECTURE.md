@@ -22,3 +22,5 @@ RedditNSFW maintains one browser-side userscript. Image Recreation owns both nat
 
 ## Recovery safeguards
 Native images must be loaded with nonzero natural dimensions; videos must have current frame data and no media error. Both need a nonzero rendered box and visible ancestors, including assigned slots and shadow hosts. Loader placeholders alone do not suppress reconstruction. Visible iframes with a source remain a heuristic because cross-origin playback state is inaccessible. Failed or empty post JSON results are evicted while successful and in-flight requests remain shared. Video variants modify the URL pathname and preserve query/hash components. Image preloads clean up listeners and settle on success, error, or timeout. Unexpected build exceptions restore the retry button.
+
+The fallback video layer covers its host with an opaque black background and clips overflow. This prevents native media underneath from showing through letterboxed areas or edge gaps while the replacement plays. Native handoff still removes the fallback layer normally.

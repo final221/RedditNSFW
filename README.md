@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.1.0**
+Current: **1.1.1**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 

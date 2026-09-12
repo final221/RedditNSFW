@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.29
+// @version      1.30
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -1357,7 +1357,8 @@
             align-items:center;
             justify-content:center;
             pointer-events:auto;
-            background:transparent;
+            background:#000;
+            overflow:hidden;
         `;
 
         const video = document.createElement('video');
@@ -1694,7 +1695,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.29',
+            version: '1.30',
             exportFunction: 'log()'
         });
         scan(document);
