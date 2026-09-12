@@ -39,8 +39,9 @@
 - Check whether the post JSON still exposes the needed media URLs.
 - Check browser console output before changing logic.
 
+## Recovery failures
+`fetch-post-data-failed` records HTTP, network, or JSON errors; these failures are evicted so Try again can fetch afresh. `image-preload-timeout` records an image that exceeded its preload deadline. `fallback-build-error` records unexpected build exceptions and restores Try again. Startup reports userscript version 1.33 (restored 1.31 behavior). Loading native players and revealed embed loaders reserve playback again; cross-origin iframe playback still cannot be verified.
 
+For a second animation showing along a fallback video edge, confirm userscript 1.30 or newer is installed. Its video layer uses an opaque black background and clips overflow to hide underlying Reddit media around the fitted video. This addresses layer bleed-through; it does not diagnose artifacts encoded in the video itself.
 
-
-
-
+If a preview image covers an actual stream, use 1.31 or newer: 1.29 relaxed native-player ownership and allowed fallback reconstruction too early. Version 1.30 only masked edge bleed-through. Version 1.31 restores native playback priority and invalidates obsolete work after fetch/preload. A stuck native player may consequently remain native, as in 1.28; capture log() and the affected media DOM before changing this priority again.
