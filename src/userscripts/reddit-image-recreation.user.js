@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.30
+// @version      1.31
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -847,6 +847,15 @@
     function hasNativeResolvedMedia(host, blurContainer) {
         if (!(host instanceof Element)) return false;
 
+        // Reserve native playback before it has loaded. Replacing a loading player
+        // with its JSON preview can cover the actual stream and prevent playback.
+        const players = host.querySelectorAll('video, iframe, embed, object, shreddit-embed, shreddit-async-loader');
+        for (const player of players) {
+            if (player.closest('.tm-unblur-media-layer')) continue;
+            if (player.matches('video, iframe')) return true;
+            if (player.closest('[slot="revealed"]')) return true;
+        }
+
         const mediaNodes = host.querySelectorAll('img, video, iframe');
         for (const node of mediaNodes) {
             if (nodeHasUsableNativeMedia(node, blurContainer)) {
@@ -855,6 +864,19 @@
         }
 
         return false;
+    }
+
+    function canContinueFallback(host, blurContainer, overlay) {
+        // Async JSON/preloads can finish after native media arrives, navigation,
+        // or Reddit replaces the host. An obsolete attempt must never insert media.
+        if (!host.isConnected || !blurContainer.isConnected ||
+            overlay.parentElement !== host || getOverlayHost(blurContainer) !== host) return false;
+        if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
+            overlay.remove();
+            delete host.dataset.tmOverlayBuilt;
+            return false;
+        }
+        return true;
     }
 
     function yieldToNativeMedia(host, blurContainer) {
@@ -1500,6 +1522,7 @@
                 if (postHref) {
                     const normalizedPostUrl = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
                     const post = await fetchPostData(postHref);
+                    if (!canContinueFallback(host, blurContainer, overlay)) return;
                     const media = resolveMediaFromPost(post);
                     const clickHref = normalizedPostUrl;
                     builtMediaType = media?.type || null;
@@ -1512,6 +1535,7 @@
                     if (media?.type === 'gallery') {
                         const firstItem = media.items?.[0];
                         const preloaded = firstItem ? await preloadImage(firstItem.src) : null;
+                        if (!canContinueFallback(host, blurContainer, overlay)) return;
                         recordDebug('gallery-preload', {
                             normalizedPostUrl,
                             firstItem: firstItem?.src || null,
@@ -1523,6 +1547,7 @@
                         }
                     } else if (media?.type === 'image') {
                         const preloaded = await preloadImage(media.src);
+                        if (!canContinueFallback(host, blurContainer, overlay)) return;
                         recordDebug('image-preload', {
                             normalizedPostUrl,
                             src: media.src,
@@ -1540,6 +1565,7 @@
                         }
                     } else if (media?.type === 'video') {
                         const playableSrc = await resolvePlayableVideoSource({ ...media, debugPostUrl: normalizedPostUrl });
+                        if (!canContinueFallback(host, blurContainer, overlay)) return;
                         if (playableSrc) {
                             const layout = measureFallbackLayout(host, blurContainer, img, null);
                             built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref, layout);
@@ -1695,7 +1721,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.30',
+            version: '1.31',
             exportFunction: 'log()'
         });
         scan(document);
@@ -1728,7 +1754,6 @@
         start();
     }
 })();
-
 
 
 

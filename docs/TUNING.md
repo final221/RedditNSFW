@@ -17,3 +17,5 @@ The standalone Auto Unblur script has been removed. These settings apply to the 
 ## Tuning rule
 - Prefer the smallest change that restores behavior on live Reddit pages.
 - Treat broader scanning, faster polling, or heavier fetch behavior as higher-cost changes that need runtime justification.
+
+Native video/iframe presence and revealed embed loaders take priority over the fallback timer, even before playback starts. Reducing `fallbackDelayMs` does not override this guard.

@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '../src/userscripts/reddit-i
 const boundary = source.indexOf('    const mo = new MutationObserver');
 assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
-globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage };
+globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage, canContinueFallback };
 })();`;
 class Element {
     constructor(tag = 'div') {
@@ -18,13 +18,19 @@ class Element {
         this.attrs = {};
         this.style = { display: 'block', visibility: 'visible', opacity: '1' };
         this.children = [];
+        this.dataset = {};
     }
     matches(selector) { return selector.split(',').map(s => s.trim()).includes(this.tag); }
-    closest() { return this.customLayer || null; }
+    closest(selector) {
+        if (selector === '.tm-unblur-media-layer') return this.customLayer || null;
+        if (selector === '[slot="revealed"]') return this.revealedSlot || null;
+        return null;
+    }
+    remove() { this.parentElement = null; this.isConnected = false; }
     getAttribute(key) { return this.attrs[key] || null; }
     getBoundingClientRect() { return { width: 320, height: 240 }; }
     getRootNode() { return {}; }
-    querySelectorAll() { return this.children; }
+    querySelectorAll(selector) { return this.children.filter(node => node.matches(selector)); }
     contains(node) { return this.children.includes(node); }
 }
 const timers = new Map();
@@ -88,16 +94,16 @@ async function run() {
     const video = new Element('video');
     host.children = [video];
     video.readyState = 0;
-    assert.equal(subject.hasNativeResolvedMedia(host, host), false);
+    assert.equal(subject.hasNativeResolvedMedia(host, host), true, 'loading native video retains ownership');
     video.readyState = 2;
     assert.equal(subject.hasNativeResolvedMedia(host, host), true);
     video.parentElement = new Element();
     video.parentElement.style.opacity = '0';
-    assert.equal(subject.hasNativeResolvedMedia(host, host), false);
+    assert.equal(subject.hasNativeResolvedMedia(host, host), true, 'temporarily hidden native video retains ownership');
     video.parentElement = null;
     video.assignedSlot = new Element();
     video.assignedSlot.style.display = 'none';
-    assert.equal(subject.hasNativeResolvedMedia(host, host), false);
+    assert.equal(subject.hasNativeResolvedMedia(host, host), true, 'native playback is not replaced during slot reveal');
     video.assignedSlot = null;
     video.customLayer = new Element();
     assert.equal(subject.hasNativeResolvedMedia(host, host), false);
@@ -113,6 +119,29 @@ async function run() {
     host.children = [new Element('shreddit-async-loader')];
     assert.equal(subject.hasNativeResolvedMedia(host, host), false);
 
+    const loader = new Element('shreddit-async-loader');
+    loader.revealedSlot = new Element();
+    host.children = [loader];
+    assert.equal(subject.hasNativeResolvedMedia(host, host), true, 'revealed embed loader retains ownership');
+    host.children = [];
+    const blur = new Element();
+    blur.parentElement = host;
+    const overlay = new Element();
+    overlay.parentElement = host;
+    assert.equal(subject.canContinueFallback(host, blur, overlay), true);
+    // Model a native player arriving while JSON or an image preload is pending.
+    host.children = [new Element('video')];
+    assert.equal(subject.canContinueFallback(host, blur, overlay), false);
+    assert.equal(overlay.parentElement, null, 'stale loading overlay is removed');
+    host.children = [];
+    assert.equal(subject.canContinueFallback(host, blur, overlay), false, 'removed attempt cannot restart');
+    overlay.parentElement = host;
+    host.isConnected = false;
+    assert.equal(subject.canContinueFallback(host, blur, overlay), false, 'navigation invalidates attempt');
+    host.isConnected = true;
+    blur.parentElement = new Element();
+    assert.equal(subject.canContinueFallback(host, blur, overlay), false, 'host replacement invalidates attempt');
+
     const timeout = subject.preloadImage('https://example.test/stalled.jpg');
     [...timers.values()].forEach(fn => fn());
     assert.equal(await timeout, null);
@@ -126,6 +155,6 @@ async function run() {
     lastImage.listeners.get('error')();
     assert.equal(await error, null);
     assert.equal(timers.size, 0);
-    console.log('[check-media-recovery] Passed request retries/cache, video URLs, native readiness/visibility, and image preload checks.');
+    console.log('[check-media-recovery] Passed request retries/cache, video URLs, native playback ownership, stale attempts, and image preload checks.');
 }
 run().catch(err => { console.error(err); process.exitCode = 1; });

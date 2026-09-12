@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.1.1**
+Current: **1.1.2**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
@@ -34,4 +34,4 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - Default branch: `main`
 
 ## Recovery behavior
-Image Recreation 1.29 checks native image/video visibility and readiness before yielding, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
+Image Recreation 1.31 reserves native video and embed playback, including players still loading, and cancels obsolete fallback attempts after fetch/preload. It checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
