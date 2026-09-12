@@ -1,6 +1,6 @@
 {
   "name": "redditnsfw",
-  "version": "1.1.2",
+  "version": "1.0.0",
   "description": "Reddit Tampermonkey userscripts for NSFW unblur and media reconstruction.",
   "private": true,
   "scripts": {
@@ -9,7 +9,7 @@
     "build:minor": "npm run build -- --minor",
     "build:major": "npm run build -- --major",
     "build:no-bump": "npm run build -- --no-bump",
-    "test": "node build/check-userscripts.js && node build/check-media-recovery.js",
+    "test": "node build/check-userscripts.js",
     "verify:extras": "node build/sync-docs.js --check",
     "agent:verify": "node build/agent-verify.js",
     "agent:commit": "node build/agent-commit.js",

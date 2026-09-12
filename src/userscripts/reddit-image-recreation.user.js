@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.31
+// @version      1.28
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -16,7 +16,6 @@
         preferNativeReveal: false,
         useClickFallback: false,
         videoRecoveryTimeoutMs: 1800,
-        imagePreloadTimeoutMs: 8000,
         debugLogMaxEntries: 400
     };
     const REPORTER_KEY = '__redditNSFWLogReporter';
@@ -346,22 +345,14 @@
             const promise = (async () => {
                 const jsonUrl = `${postPath}/.json?raw_json=1`;
                 const res = await fetch(jsonUrl, { credentials: 'same-origin' });
-                if (!res.ok) throw new Error(`Post JSON HTTP ${res.status}`);
+                if (!res.ok) return null;
 
                 const json = await res.json();
                 return json?.[0]?.data?.children?.[0]?.data || null;
             })();
 
-            const cached = promise.then((post) => {
-                if (!post) mediaCache.delete(postPath);
-                return post;
-            }, (err) => {
-                mediaCache.delete(postPath);
-                recordDebug('fetch-post-data-failed', { postPath, error: err?.message || String(err) });
-                return null;
-            });
-            mediaCache.set(postPath, cached);
-            return await cached;
+            mediaCache.set(postPath, promise);
+            return promise;
         } catch (err) {
             log('fetchPostData failed', err);
             return null;
@@ -520,11 +511,7 @@
                     const current = Number(match[2]);
                     const highProbeHeights = [1080, 720].filter((value) => value > current);
                     const lowerHeights = [360, 240].filter((value) => value < current);
-                    const swapVariant = (nextFamily, nextHeight) => {
-                        const variant = new URL(url.href);
-                        variant.pathname = variant.pathname.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${nextFamily}_${nextHeight}.mp4`);
-                        return variant.href;
-                    };
+                    const swapVariant = (nextFamily, nextHeight) => decoded.replace(/\/(CMAF|DASH)_\d+\.mp4$/i, `/${nextFamily}_${nextHeight}.mp4`);
 
                     for (const height of highProbeHeights) {
                         add(swapVariant(family, height));
@@ -778,42 +765,19 @@
         return false;
     }
 
-    function isVisibleNativeMedia(node) {
-        if (!node.isConnected) return false;
-        const rect = node.getBoundingClientRect();
-        if (rect.width <= 0 || rect.height <= 0) return false;
-        // Follow slots and shadow hosts as well as ordinary parents.
-        let current = node;
-        while (current instanceof Element) {
-            const style = getComputedStyle(current);
-            if (style.display === 'none' || style.visibility === 'hidden' ||
-                style.visibility === 'collapse' || Number(style.opacity) === 0 ||
-                style.contentVisibility === 'hidden') return false;
-            current = current.assignedSlot || current.parentElement || current.getRootNode()?.host;
-        }
-        return true;
-    }
-
     function nodeHasUsableNativeMedia(node, blurContainer) {
         if (!(node instanceof Element)) return false;
         if (node.closest('.tm-unblur-media-layer')) return false;
 
-        if (!isVisibleNativeMedia(node)) return false;
-        if (node.matches('video')) {
-            return !node.error && node.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA;
-        }
-        if (node.matches('iframe')) {
-            // Cross-origin playback state is inaccessible; require a visible, sourced frame.
-            const src = node.getAttribute('src');
-            return Boolean(src && src !== 'about:blank');
+        if (node.matches('video, iframe')) {
+            return true;
         }
 
         if (!node.matches('img')) {
             return false;
         }
 
-        if (!node.complete || node.naturalWidth <= 0 || node.naturalHeight <= 0) return false;
-        const src = node.currentSrc || node.getAttribute('src') || '';
+        const src = node.getAttribute('src') || node.getAttribute('data-lazy-src') || node.currentSrc || '';
         const loweredSrc = src.toLowerCase();
         const className = node.className || '';
         const alt = (node.getAttribute('alt') || '').trim();
@@ -844,16 +808,41 @@
         return false;
     }
 
+    function hasNativeRevealedEmbed(blurContainer) {
+        if (!(blurContainer instanceof Element)) return false;
+
+        const revealed = blurContainer.querySelector(':scope > [slot="revealed"], [slot="revealed"]');
+        if (!(revealed instanceof Element)) {
+            return false;
+        }
+
+        if (revealed.querySelector('iframe, video, img, embed, object, shreddit-embed')) {
+            return true;
+        }
+
+        const asyncLoader = revealed.querySelector('shreddit-async-loader');
+        if (asyncLoader instanceof Element) {
+            return true;
+        }
+
+        const embedHtml = revealed.querySelector('shreddit-embed')?.getAttribute('html') || '';
+        if (typeof embedHtml === 'string' && embedHtml.trim()) {
+            return true;
+        }
+
+        return false;
+    }
+
     function hasNativeResolvedMedia(host, blurContainer) {
         if (!(host instanceof Element)) return false;
 
-        // Reserve native playback before it has loaded. Replacing a loading player
-        // with its JSON preview can cover the actual stream and prevent playback.
-        const players = host.querySelectorAll('video, iframe, embed, object, shreddit-embed, shreddit-async-loader');
-        for (const player of players) {
-            if (player.closest('.tm-unblur-media-layer')) continue;
-            if (player.matches('video, iframe')) return true;
-            if (player.closest('[slot="revealed"]')) return true;
+        if (hasNativeRevealedEmbed(blurContainer)) {
+            return true;
+        }
+
+        const nativeVideo = host.querySelector('video:not(.tm-unblur-media-layer video)');
+        if (nativeVideo && !nativeVideo.closest('.tm-unblur-media-layer')) {
+            return true;
         }
 
         const mediaNodes = host.querySelectorAll('img, video, iframe');
@@ -864,19 +853,6 @@
         }
 
         return false;
-    }
-
-    function canContinueFallback(host, blurContainer, overlay) {
-        // Async JSON/preloads can finish after native media arrives, navigation,
-        // or Reddit replaces the host. An obsolete attempt must never insert media.
-        if (!host.isConnected || !blurContainer.isConnected ||
-            overlay.parentElement !== host || getOverlayHost(blurContainer) !== host) return false;
-        if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
-            overlay.remove();
-            delete host.dataset.tmOverlayBuilt;
-            return false;
-        }
-        return true;
     }
 
     function yieldToNativeMedia(host, blurContainer) {
@@ -1041,24 +1017,10 @@
     async function preloadImage(url) {
         return await new Promise((resolve) => {
             const img = new Image();
-            let settled = false;
-            const finish = (value) => {
-                if (settled) return;
-                settled = true;
-                clearTimeout(timer);
-                img.removeEventListener('load', onLoad);
-                img.removeEventListener('error', onError);
-                if (!value) img.removeAttribute('src');
-                resolve(value);
-            };
-            const onLoad = () => finish(img);
-            const onError = () => finish(null);
-            const timer = setTimeout(() => {
-                recordDebug('image-preload-timeout', { url });
-                finish(null);
-            }, CONFIG.imagePreloadTimeoutMs);
-            img.addEventListener('load', onLoad);
-            img.addEventListener('error', onError);
+
+            img.addEventListener('load', () => resolve(img), { once: true });
+            img.addEventListener('error', () => resolve(null), { once: true });
+
             img.src = url;
         });
     }
@@ -1379,8 +1341,7 @@
             align-items:center;
             justify-content:center;
             pointer-events:auto;
-            background:#000;
-            overflow:hidden;
+            background:transparent;
         `;
 
         const video = document.createElement('video');
@@ -1504,97 +1465,86 @@
             button.disabled = true;
             button.textContent = 'Loading...';
 
-            try {
-                if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
-                    recordDebug('fallback-suppressed', {
-                        normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
-                        nativeResolved: hasNativeResolvedMedia(host, blurContainer),
-                        nativeRevealControl: hasNativeRevealControl(host)
-                    });
-                    overlay.remove();
-                    delete host.dataset.tmOverlayBuilt;
-                    return;
-                }
+            if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
+                recordDebug('fallback-suppressed', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    nativeResolved: hasNativeResolvedMedia(host, blurContainer),
+                    nativeRevealControl: hasNativeRevealControl(host)
+                });
+                overlay.remove();
+                delete host.dataset.tmOverlayBuilt;
+                return;
+            }
 
-                let built = false;
-                let builtMediaType = null;
+            let built = false;
+            let builtMediaType = null;
 
-                if (postHref) {
-                    const normalizedPostUrl = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
-                    const post = await fetchPostData(postHref);
-                    if (!canContinueFallback(host, blurContainer, overlay)) return;
-                    const media = resolveMediaFromPost(post);
-                    const clickHref = normalizedPostUrl;
-                    builtMediaType = media?.type || null;
+            if (postHref) {
+                const normalizedPostUrl = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
+                const post = await fetchPostData(postHref);
+                const media = resolveMediaFromPost(post);
+                const clickHref = normalizedPostUrl;
+                builtMediaType = media?.type || null;
 
-                    recordDebug('resolved-media', {
+                recordDebug('resolved-media', {
+                    normalizedPostUrl,
+                    mediaType: media?.type || null
+                });
+
+                if (media?.type === 'gallery') {
+                    const firstItem = media.items?.[0];
+                    const preloaded = firstItem ? await preloadImage(firstItem.src) : null;
+                    recordDebug('gallery-preload', {
                         normalizedPostUrl,
-                        mediaType: media?.type || null
+                        firstItem: firstItem?.src || null,
+                        ok: Boolean(preloaded)
                     });
-
-                    if (media?.type === 'gallery') {
-                        const firstItem = media.items?.[0];
-                        const preloaded = firstItem ? await preloadImage(firstItem.src) : null;
-                        if (!canContinueFallback(host, blurContainer, overlay)) return;
-                        recordDebug('gallery-preload', {
-                            normalizedPostUrl,
-                            firstItem: firstItem?.src || null,
-                            ok: Boolean(preloaded)
-                        });
-                        if (preloaded) {
-                            const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
-                            built = createGalleryLayer(host, media, clickHref, img?.alt || '', layout);
-                        }
-                    } else if (media?.type === 'image') {
-                        const preloaded = await preloadImage(media.src);
-                        if (!canContinueFallback(host, blurContainer, overlay)) return;
-                        recordDebug('image-preload', {
-                            normalizedPostUrl,
-                            src: media.src,
-                            ok: Boolean(preloaded)
-                        });
-                        if (preloaded) {
-                            const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
-                            built = createSharpLayer(
-                                host,
-                                media.src,
-                                clickHref,
-                                img?.alt || '',
-                                layout
-                            );
-                        }
-                    } else if (media?.type === 'video') {
-                        const playableSrc = await resolvePlayableVideoSource({ ...media, debugPostUrl: normalizedPostUrl });
-                        if (!canContinueFallback(host, blurContainer, overlay)) return;
-                        if (playableSrc) {
-                            const layout = measureFallbackLayout(host, blurContainer, img, null);
-                            built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref, layout);
-                        }
+                    if (preloaded) {
+                        const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
+                        built = createGalleryLayer(host, media, clickHref, img?.alt || '', layout);
                     }
-                } else {
-                    recordDebug('missing-post-href', {
-                        currentUrl: location.href
+                } else if (media?.type === 'image') {
+                    const preloaded = await preloadImage(media.src);
+                    recordDebug('image-preload', {
+                        normalizedPostUrl,
+                        src: media.src,
+                        ok: Boolean(preloaded)
                     });
+                    if (preloaded) {
+                        const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
+                        built = createSharpLayer(
+                            host,
+                            media.src,
+                            clickHref,
+                            img?.alt || '',
+                            layout
+                        );
+                    }
+                } else if (media?.type === 'video') {
+                    const playableSrc = await resolvePlayableVideoSource({ ...media, debugPostUrl: normalizedPostUrl });
+                    if (playableSrc) {
+                        const layout = measureFallbackLayout(host, blurContainer, img, null);
+                        built = createVideoLayer(host, { ...media, src: playableSrc }, clickHref, layout);
+                    }
                 }
+            } else {
+                recordDebug('missing-post-href', {
+                    currentUrl: location.href
+                });
+            }
 
-                if (built) {
-                    recordDebug('fallback-build-success', {
-                        normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
-                        mediaType: builtMediaType
-                    });
-                    overlay.remove();
-                    delete host.dataset.tmOverlayBuilt;
-                } else {
-                    recordDebug('fallback-build-failed', {
-                        normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
-                        buttonText: 'Try again'
-                    });
-                    button.disabled = false;
-                    button.textContent = 'Try again';
-                    overlay.style.pointerEvents = 'auto';
-                }
-            } catch (err) {
-                recordDebug('fallback-build-error', { error: err?.message || String(err) });
+            if (built) {
+                recordDebug('fallback-build-success', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    mediaType: builtMediaType
+                });
+                overlay.remove();
+                delete host.dataset.tmOverlayBuilt;
+            } else {
+                recordDebug('fallback-build-failed', {
+                    normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                    buttonText: 'Try again'
+                });
                 button.disabled = false;
                 button.textContent = 'Try again';
                 overlay.style.pointerEvents = 'auto';
@@ -1721,7 +1671,7 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.31',
+            version: '1.27',
             exportFunction: 'log()'
         });
         scan(document);
@@ -1754,6 +1704,7 @@
         start();
     }
 })();
+
 
 
 
