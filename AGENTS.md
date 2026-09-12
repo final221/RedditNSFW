@@ -6,7 +6,7 @@
 
 ## Efficiency-first stance
 - Prioritize the thinnest path that preserves userscript correctness and repo clarity.
-- Keep the two script lines separate unless there is a concrete runtime reason to merge them.
+- Maintain Image Recreation as the sole script entry; the unused standalone Auto Unblur script was removed and remains in Git history.
 - Do not add process docs or extra tooling unless they reduce real maintenance cost.
 
 ## Honesty over agreeableness
@@ -35,9 +35,8 @@
 ## Agent quick map
 - Entry point: `src/userscripts/`
 - Main logic map: `src/script-catalog.js`
-- Core subsystem A: `src/userscripts/reddit-auto-unblur.user.js`
-- Core subsystem B: `src/userscripts/reddit-image-recreation.user.js`
-- Core subsystem C: `build/` repo workflow scripts
+- Core subsystem A: `src/userscripts/reddit-image-recreation.user.js`
+- Core subsystem B: `build/` repo workflow scripts
 - Logging / observability: browser console logs inside the userscripts and `docs/DEBUGGING.md`
 
 ## Workflow (always)

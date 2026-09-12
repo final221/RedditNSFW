@@ -1,17 +1,10 @@
 # Architecture
 
-RedditNSFW keeps two separate browser-side strategies because they solve different failure modes on Reddit.
+RedditNSFW maintains one browser-side userscript. Image Recreation owns both native blur removal and media reconstruction; the unused standalone Auto Unblur script is retained only in Git history.
 
-## Strategy Split
+## Media handling
 
-### Direct unblur
-- Entry: `src/userscripts/reddit-auto-unblur.user.js`
-- Purpose: remove or bypass Reddit's NSFW blur state when the native media container still works
-- Primary mechanisms: property flip, attribute removal, mutation reprocessing
-- Runtime guardrail: automated Reddit reveal-button clicks are disabled by default because current Reddit surfaces can turn repeated reveal attempts into login/register prompt spam
-- Observability: the script keeps a rolling in-memory trace that contributes to the combined `log()` export as `reddit-nsfw-log.txt`, including start/toggle state, processed blur containers, skipped reveal-click state, and a current page snapshot of matching Reddit blur containers
-
-### External media reconstruction
+### Image Recreation
 - Entry: `src/userscripts/reddit-image-recreation.user.js`
 - Purpose: rebuild a usable media layer when Reddit's own display path is insufficient
 - Primary mechanisms: auto-flip Reddit's native blur state first without automated Reddit reveal/login button clicks, treat native galleries, revealed embeds, or actually visible media inside Reddit's blur wrapper as already-resolved, normalize comment permalinks back to their parent post URLs, then fetch post JSON, resolve image, video, or gallery media, rank a capped set of Reddit mp4 guesses while preferring the declared Reddit source ahead of lower guessed variants, prefer resolved preview/media image URLs before fabricating direct `i.redd.it` links, seed fallback layout from blurred or preloaded media dimensions when Reddit collapses the media host, while respecting Reddit''s own max-height caps, preload the selected path, and auto-inject a custom fallback layer only when native handling still looks blocked; a flipped blur property alone does not suppress fallback recreation; fallback videos escalate to controls if autoplay never becomes usable; if Reddit rerenders away a built fallback layer while the surface is still blocked, the script retries on the refreshed host
@@ -20,7 +13,7 @@ RedditNSFW keeps two separate browser-side strategies because they solve differe
 ## Shared assumptions
 - Runtime is Tampermonkey in the browser.
 - Supported hosts are `www.reddit.com` and `sh.reddit.com`.
-- Both scripts depend on Reddit's DOM and can break when Reddit changes markup or data shape.
+- The script depends on Reddit's DOM and can break when Reddit changes markup or data shape.
 
 ## Repository support layer
 - `src/script-catalog.js` is the metadata source of truth.

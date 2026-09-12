@@ -1,12 +1,8 @@
 # Tuning
 
-## Direct unblur script knobs
-- `includeSpoilers`: extends handling beyond NSFW blur cases
-- `useClickFallback`: disabled by default so Reddit login/register prompts are not opened repeatedly
-- `toastMs`: controls the local toast lifetime
-- `debugLogMaxEntries`: caps the rolling exportable trace buffer so field diagnostics do not grow without bound
+The standalone Auto Unblur script has been removed. These settings apply to the maintained Image Recreation script.
 
-## External reconstruction script knobs
+## Image Recreation script knobs
 - `mediaCache`: memoizes per-post JSON lookups within the page session
 - `fallbackDelayMs`: waits briefly before patching so Reddit-native reveal/media handling gets first priority
 - `preferNativeReveal`: disabled by default so login-gated Reddit reveal controls do not suppress reconstruction

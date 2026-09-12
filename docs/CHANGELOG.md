@@ -1,4 +1,19 @@
 # Changelog
+## 1.0.0 - 2026-09-12T21:46:01.893Z
+Previous: 0.15.0
+Commit: 94f863e
+Changes:
+- Stop automated Reddit reveal clicks
+- Combine RedditNSFW log export
+- k
+- Add direct unblur log export
+- Clamp fallback layout to native height caps
+- Seed collapsed fallback layout from media dimensions
+- Add fallback image render-state export diagnostics
+- Prefer preview image sources before direct gallery rewrites
+- Recover lost fallback layers after Reddit rerenders
+- Cap guessed video ladder before deeper discovery
+
 ## 0.15.0 - 2026-05-20T22:51:48.313Z
 Previous: 0.14.0
 Commit: 12c9985

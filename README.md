@@ -1,20 +1,13 @@
 # RedditNSFW
 
-Current: **0.15.0**
+Current: **1.0.0**
 
-RedditNSFW is a Reddit/Tampermonkey userscript repo focused on two related but separate problems on modern Reddit surfaces:
-- direct NSFW blur removal when Reddit still renders the media container correctly
-- external media reconstruction when Reddit's own display layer fails or degrades
+RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
-The current working sources still exist in the repo root as intake baselines:
-- `Unblur.txt`
-- `image recreation.txt`
-
-The maintained script entries live under `src/userscripts/`.
+The maintained source lives under `src/userscripts/`. The unused standalone Auto Unblur script was removed; it remains recoverable from Git history.
 
 ## Current Scripts
 <!-- SCRIPT_SUMMARY_START -->
-- `Reddit Auto Unblur` -> `src/userscripts/reddit-auto-unblur.user.js`: Primary script for direct blur removal when Reddit still renders the native media container correctly.
 - `Reddit Image Recreation` -> `src/userscripts/reddit-image-recreation.user.js`: Native-first script that auto-attempts direct unblur and only reconstructs media when Reddit still fails to reveal it cleanly.
 <!-- SCRIPT_SUMMARY_END -->
 
@@ -23,7 +16,7 @@ The maintained script entries live under `src/userscripts/`.
 - `src/script-catalog.js` is the single metadata source for script inventory and doc generation.
 - `build/` contains the repo-local verify, build, commit, and doc-sync entrypoints.
 - `docs/` holds the project docs, including generated script reference output.
-- Root `.txt` files are preserved as raw intake/reference material, not the primary maintained entries.
+- Root `.txt` files contain preserved failure examples for debugging.
 
 ## Field Logs
 - Run `log()` in the browser console on Reddit to download `reddit-nsfw-log.txt`.

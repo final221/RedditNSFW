@@ -1,17 +1,6 @@
 # Debugging
 
-## Direct unblur script
-- Console output and the rolling in-memory trace are always active.
-- Console prefix: `[Reddit Unblur]`
-- Runtime toggles:
-- `Alt+U` toggles the script on or off
-- Exported trace data includes:
-- script start and toggle state
-- processed `shreddit-blurred-container` details
-- skipped reveal-click state when automated clicking is disabled
-- current page snapshot of matching Reddit blur containers
-
-## External reconstruction script
+## Image Recreation script
 - Console output and the rolling in-memory trace are always active.
 - Console prefix: `[Reddit External Unblur]`
 - Exported trace data includes:
@@ -39,10 +28,10 @@
 - Run `log()` in the browser console on Reddit to download `reddit-nsfw-log.txt`.
 - The file includes page metadata, snapshots from every loaded RedditNSFW script, and the combined event trace.
 - `window.redditNSFWExportLog()` is the explicit alias.
-- `window.redditAutoUnblurExportLog()` and `window.redditImageRecreationExportLog()` still call the combined export when those scripts are loaded.
+- `window.redditImageRecreationExportLog()` also calls the export. The removed standalone Auto Unblur script is no longer part of the maintained debug surface.
 
 ## First debugging pass
-- Confirm which script line is responsible for the current issue.
+- Confirm Image Recreation is enabled and disable any old standalone Auto Unblur installation to avoid overlapping behavior.
 - Check whether Reddit still renders a `shreddit-blurred-container`.
 - Run `log()` before changing logic when the problem is live in the browser.
 - For unstable cases where Reddit native media appears intermittently, check whether the trace contains `fallback-build-success` without a later `fallback-yielded-to-native`.
