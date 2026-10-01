@@ -34,6 +34,7 @@ what it should not contain
 - A request to discuss, assess, or suggest optional work is not approval to implement it. Explain tradeoffs and work only on the selected step; do not add speculative changes just to finish a plan.
 - For multi-step code reviews, the user prefers a clear ordered plan with progress reported as each step is completed.
 - The user shares browser diagnostics by pasting them into this chat. Prefer directly copyable reports and controls that remain accessible while scrolling; downloading a file is a supplementary option.
+- The user judges feed responsiveness by whether images are ready during continuous scrolling; eventual successful loading alone does not meet the browsing goal.
 - Performance and reliability patches should include low-cost diagnostic logging or counters that help verify their effect and investigate failures in user-supplied logs, without making normal browsing noisy or expensive. The user explicitly authorizes adding or updating bounded, low-cost diagnostics during investigations when existing logs leave important questions unanswered; do not wait for separate approval to improve those logs.
 - The user authorizes the assistant to maintain the editable durable-context sections of this file when lasting repository knowledge or preferences change, following the protected instructions above. Routine maintenance of those sections does not require another permission request.
 

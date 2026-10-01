@@ -48,6 +48,7 @@
 1. Make changes and update tests or checks when behavior changes.
 2. Choose bump policy, set `BUMP=patch|minor|major|none`, then run `npm run agent:verify`.
 3. Set `COMMIT_MSG="..."` and run `npm run agent:commit` if verify succeeds.
+4. Update Context.md if appropriate.
 
 - Preferred workflow entrypoints are `agent:verify` and `agent:commit`.
 - `BUMP=none` is the local-only verify path. Use it for exploratory setup or docs-only validation when no release metadata change is wanted.

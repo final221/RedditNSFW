@@ -16,6 +16,7 @@
 - fallback layout seeding details, including whether the host needed an injected min-height and which height cap was applied
 - fallback image render-state snapshots, including load/error, natural dimensions, rendered box size, and computed visibility
 - media-type resolution and preload outcomes, including why fallback was skipped before fetch/build
+- selected image source and target/source dimensions, actual/intended fallback timer wait, and fetch/preload/build elapsed times
 - Main failure points:
 - Reddit login/register prompts appearing means automated reveal clicking should remain disabled
 - post JSON fetch failure
@@ -51,8 +52,15 @@
 - `scanTiming` measures synchronous script batches; a `scan-slow` event includes the batch reason, elapsed time, processed-container count, and document visibility. Nested mutation scans count once. These timings help investigate processing hiccups but cannot attribute all Reddit/browser stalls or asynchronous media delays.
 - Keep the affected post in the viewport when copying so its current media state is prioritized in the bounded sample. Iframe/embed playback remains uninspected.
 
+## Images loading behind scrolling
+- `fallback-timer-fired` includes `waitMs` and `intendedWaitMs`. Repeated scans retain the original deadline for the same host/container/post. Event-loop delays can still make the actual wait longer. `fallback-timer-cancelled` records a disconnected or replaced target at firing time.
+- `resolved-media.fetchElapsedMs` measures the post lookup; `image-preload.elapsedMs` measures the image load wait; `fallback-build-success.elapsedMs` measures the build attempt including asynchronous waits, after the grace period. These are elapsed wall times, not measurements of browser CPU or decoding cost.
+- `image-source-selected` reports the original and selected URL, selection reason, pixel target, and chosen dimensions when known. `display-sized-preview` means an advertised preview covers the display box at the current pixel density. Original selection is retained for animation, missing layout/metadata, unavailable adequate previews, or disabled sizing.
+- `image-preview-failed` records a failed selected preview before retrying the original. Native ownership and connectivity are checked after each preload, so obsolete work cannot retry or replace newly arrived native media.
+- Compare source dimensions with the rendered image box in `fallback-image-state`; a successful load alone does not establish smooth scrolling. Native media may still load separately and later take ownership.
+
 ## Recovery failures
-`fetch-post-data-failed` records HTTP, network, or JSON errors; these failures are evicted so Try again can fetch afresh. `fetch-post-url-failed` records invalid post URLs, and `unblur-property-failed` records native blur property errors. `image-preload-timeout` records an image that exceeded its preload deadline. `fallback-build-error` records unexpected build exceptions and restores Try again. Startup and current snapshots report userscript version 1.35. Loading native players and revealed embed loaders reserve playback again; cross-origin iframe playback still cannot be verified.
+`fetch-post-data-failed` records HTTP, network, or JSON errors; these failures are evicted so Try again can fetch afresh. `fetch-post-url-failed` records invalid post URLs, and `unblur-property-failed` records native blur property errors. `image-preload-timeout` records an image that exceeded its preload deadline. `fallback-build-error` records unexpected build exceptions and restores Try again. Startup and current snapshots report userscript version 1.36. Loading native players and revealed embed loaders reserve playback again; cross-origin iframe playback still cannot be verified.
 
 For a second animation showing along a fallback video edge, confirm userscript 1.30 or newer is installed. Its video layer uses an opaque black background and clips overflow to hide underlying Reddit media around the fitted video. This addresses layer bleed-through; it does not diagnose artifacts encoded in the video itself.
 

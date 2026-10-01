@@ -1,4 +1,19 @@
 # Changelog
+## 1.3.0 - 2026-10-01T15:48:29.740Z
+Previous: 1.2.1
+Commit: 6e1b2e2
+Changes:
+- Connect durable context to the agent workflow
+- Improve log retention and targeted media diagnostics
+- Add fixed Copy log control and clipboard fallback
+- Restore userscript 1.31 behavior as version 1.33
+- Publish restored 1.28 code as userscript 1.32
+- Revert media refinements and restore exact userscript 1.28
+- Restore native playback priority and cancel obsolete fallbacks
+- Prevent native animation bleed-through around fallback videos
+- Fix media recovery retries and native readiness checks
+- Remove unused standalone Auto Unblur script
+
 ## 1.2.1 - 2026-10-01T14:08:34.242Z
 Previous: 1.2.0
 Commit: 9b18853

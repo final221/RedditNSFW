@@ -4,9 +4,10 @@ The standalone Auto Unblur script has been removed. These settings apply to the 
 
 ## Image Recreation script knobs
 - `mediaCache`: shares in-flight and successful per-post JSON lookups; failures and empty results are evicted for retry
-- `fallbackDelayMs`: waits briefly before patching so Reddit-native reveal/media handling gets first priority
+- `fallbackDelayMs`: 1200ms grace period from the first unblocked fallback decision for a host/container/post; rescans preserve the pending deadline, and native arrival cancels it
 - `preferNativeReveal`: disabled by default so login-gated Reddit reveal controls do not suppress reconstruction
 - `useClickFallback`: disabled by default so Reddit login/register prompts are not opened repeatedly
+- `useSizedImagePreviews`: true by default; reconstructed single images use the smallest advertised full-frame preview covering the measured box at screen pixel density. Animation, missing sizing data, or insufficient previews retain the original. A failed preview retries the original while ownership remains valid. Set false to always use the original selected image source.
 - `imagePreloadTimeoutMs`: 8000ms deadline for each image preload; timed-out requests release their source and allow retry
 - `videoRecoveryTimeoutMs`: promotes fallback videos to visible controls when autoplay does not become usable quickly
 - `debugLogMaxEntries`: 400 by default; the shared reporter retains twice this value (800 events) and reports discarded events (including important-history losses) and suppressed repeats. Unchanged per-element decisions are suppressed; overflow discards routine state before fetch/recovery/failure events. Both Copy log and downloads read this bounded in-memory buffer.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.35
+// @version      1.36
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,13 +11,14 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.35';
+    const SCRIPT_VERSION = '1.36';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
         useClickFallback: false,
         videoRecoveryTimeoutMs: 1800,
         imagePreloadTimeoutMs: 8000,
+        useSizedImagePreviews: true,
         debugLogMaxEntries: 400,
         debugSlowScanMs: 50,
         debugConsole: false
@@ -301,18 +302,21 @@
         return recorded;
     }
 
+    function nowMs() {
+        return typeof performance === 'undefined' ? Date.now() : performance.now();
+    }
+
     function measureScan(reason, work) {
         // Mutation batches can call scan() many times; measure the outer batch once.
         if (measuringScan) return work();
-        const now = () => typeof performance === 'undefined' ? Date.now() : performance.now();
-        const started = now();
+        const started = nowMs();
         const before = scanMetrics.processedContainers;
         measuringScan = true;
         try {
             return work();
         } finally {
             measuringScan = false;
-            const durationMs = Math.round((now() - started) * 100) / 100;
+            const durationMs = Math.round((nowMs() - started) * 100) / 100;
             scanMetrics.batches += 1;
             scanMetrics.totalMs += durationMs;
             scanMetrics.maxMs = Math.max(scanMetrics.maxMs, durationMs);
@@ -696,7 +700,8 @@
             candidates.push(previewGif);
         }
 
-        const preview = post?.preview?.images?.[0]?.source?.url;
+        const previewImage = post?.preview?.images?.[0];
+        const preview = previewImage?.source?.url;
         if (preview) {
             candidates.push(preview);
         }
@@ -708,8 +713,63 @@
 
         return {
             type: 'image',
-            src
+            src,
+            width: previewImage?.source?.width || mediaMeta?.s?.x || 0,
+            height: previewImage?.source?.height || mediaMeta?.s?.y || 0,
+            animated: Boolean(previewGif || mediaMeta?.s?.gif || /\.gif(?:[?#]|$)/i.test(src)),
+            resolutions: previewImage?.resolutions || mediaMeta?.p || []
         };
+    }
+
+    function selectDisplayImageSource(media, layout) {
+        const original = { src: media.src, reason: 'original', targetWidth: null, targetHeight: null };
+        if (!CONFIG.useSizedImagePreviews || media.animated || !(media.width > 0 && media.height > 0) ||
+            !(layout?.width > 0 && layout?.height > 0)) return original;
+
+        const ratio = media.width / media.height;
+        const cssWidth = Math.min(layout.width, layout.height * ratio, media.width);
+        const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
+        const targetWidth = Math.ceil(cssWidth * pixelRatio);
+        const targetHeight = Math.ceil(cssWidth / ratio * pixelRatio);
+        const candidates = (Array.isArray(media.resolutions) ? media.resolutions : []).map(entry => ({
+            src: decodeUrl(entry?.url || entry?.u),
+            width: Number(entry?.width || entry?.x),
+            height: Number(entry?.height || entry?.y)
+        })).filter(entry => {
+            if (!isPreviewImageUrl(entry.src) || !Number.isFinite(entry.width) || !Number.isFinite(entry.height) ||
+                entry.width <= 0 || entry.height <= 0 || entry.width + 1 < targetWidth || entry.height + 1 < targetHeight ||
+                entry.width * entry.height >= media.width * media.height ||
+                Math.abs(entry.width / entry.height / ratio - 1) > 0.02) return false;
+            const url = new URL(entry.src);
+            // Use advertised, signed full-frame previews; never fabricate or unblur their URLs.
+            return !url.searchParams.has('blur') && !url.searchParams.has('crop');
+        }).sort((a, b) => a.width * a.height - b.width * b.height);
+        const selected = candidates[0];
+        return {
+            src: selected?.src || media.src,
+            reason: selected ? 'display-sized-preview' : 'original-no-suitable-preview',
+            targetWidth, targetHeight,
+            sourceWidth: selected?.width || media.width,
+            sourceHeight: selected?.height || media.height
+        };
+    }
+
+    async function preloadFallbackImage(media, layout, canContinue, normalizedPostUrl) {
+        const selected = selectDisplayImageSource(media, layout);
+        recordDebug('image-source-selected', { normalizedPostUrl, originalSrc: media.src, ...selected });
+        for (const src of new Set([selected.src, media.src])) {
+            const startedAt = nowMs();
+            const image = await preloadImage(src);
+            if (!canContinue()) return null;
+            recordDebug('image-preload', {
+                normalizedPostUrl, src, ok: Boolean(image),
+                elapsedMs: Math.round(nowMs() - startedAt),
+                naturalWidth: image?.naturalWidth || 0, naturalHeight: image?.naturalHeight || 0
+            });
+            if (image) return { image, src };
+            if (src !== media.src) recordDebug('image-preview-failed', { normalizedPostUrl, src, retrySrc: media.src });
+        }
+        return null;
     }
 
     function buildRankedVideoSources(...rawSources) {
@@ -1169,9 +1229,9 @@
 
     function clearPendingFallback(host) {
         if (!(host instanceof Element)) return;
-        const timer = fallbackTimers.get(host);
-        if (timer) {
-            clearTimeout(timer);
+        const pending = fallbackTimers.get(host);
+        if (pending) {
+            clearTimeout(pending.timer);
             fallbackTimers.delete(host);
         }
     }
@@ -1755,6 +1815,7 @@
         `;
 
         const attemptBuild = async () => {
+            const attemptStartedAt = nowMs();
             button.disabled = true;
             button.textContent = 'Loading...';
 
@@ -1775,6 +1836,7 @@
 
                 if (postHref) {
                     const normalizedPostUrl = normalizePostHref(postHref) || new URL(postHref, location.origin).toString();
+                    const fetchStartedAt = nowMs();
                     const post = await fetchPostData(postHref);
                     if (!canContinueFallback(host, blurContainer, overlay)) return;
                     const media = resolveMediaFromPost(post);
@@ -1783,7 +1845,8 @@
 
                     recordDebug('resolved-media', {
                         normalizedPostUrl,
-                        mediaType: media?.type || null
+                        mediaType: media?.type || null,
+                        fetchElapsedMs: Math.round(nowMs() - fetchStartedAt)
                     });
 
                     if (media?.type === 'gallery') {
@@ -1800,18 +1863,17 @@
                             built = createGalleryLayer(host, media, clickHref, img?.alt || '', layout);
                         }
                     } else if (media?.type === 'image') {
-                        const preloaded = await preloadImage(media.src);
-                        if (!canContinueFallback(host, blurContainer, overlay)) return;
-                        recordDebug('image-preload', {
-                            normalizedPostUrl,
-                            src: media.src,
-                            ok: Boolean(preloaded)
+                        const targetLayout = measureFallbackLayout(host, blurContainer, img, {
+                            naturalWidth: media.width, naturalHeight: media.height
                         });
-                        if (preloaded) {
-                            const layout = measureFallbackLayout(host, blurContainer, img, preloaded);
+                        const loaded = await preloadFallbackImage(media, targetLayout,
+                            () => canContinueFallback(host, blurContainer, overlay), normalizedPostUrl);
+                        if (!canContinueFallback(host, blurContainer, overlay)) return;
+                        if (loaded) {
+                            const layout = measureFallbackLayout(host, blurContainer, img, loaded.image);
                             built = createSharpLayer(
                                 host,
-                                media.src,
+                                loaded.src,
                                 clickHref,
                                 img?.alt || '',
                                 layout
@@ -1834,7 +1896,8 @@
                 if (built) {
                     recordDebug('fallback-build-success', {
                         normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
-                        mediaType: builtMediaType
+                        mediaType: builtMediaType,
+                        elapsedMs: Math.round(nowMs() - attemptStartedAt)
                     });
                     overlay.remove();
                     delete host.dataset.tmOverlayBuilt;
@@ -1876,13 +1939,12 @@
             return;
         }
 
-        clearPendingFallback(host);
-
+        const normalizedPostUrl = normalizePostHref(postHref) || postHref || null;
         const nativeOwner = findNativeMediaOwner(host, el);
         const initialBlockers = collectFallbackBlockers(host, el, nativeOwner);
         const nativeState = describeNativeOwner(nativeOwner);
         const changed = recordDebug('schedule-fallback', {
-            normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+            normalizedPostUrl,
             blockers: initialBlockers,
             nativeOwner: nativeState,
             imgFound: Boolean(img)
@@ -1892,26 +1954,39 @@
         }
 
         if (initialBlockers.length) {
+            clearPendingFallback(host);
             yieldToNativeMedia(host, el);
             return;
         }
 
-        const timer = setTimeout(() => {
+        const previous = fallbackTimers.get(host);
+        // Rescans must not turn the native grace period into a sliding deadline.
+        if (previous?.blurContainer === el && previous.normalizedPostUrl === normalizedPostUrl) return;
+        clearPendingFallback(host);
+        const pending = { blurContainer: el, normalizedPostUrl, startedAt: nowMs(), timer: null };
+        pending.timer = setTimeout(() => {
+            if (fallbackTimers.get(host) !== pending) return;
             fallbackTimers.delete(host);
+            if (!host.isConnected || !el.isConnected || getOverlayHost(el) !== host) {
+                recordDebug('fallback-timer-cancelled', { normalizedPostUrl, reason: 'host-detached-or-replaced' });
+                return;
+            }
             const timerBlockers = collectFallbackBlockers(host, el);
             recordDebug('fallback-timer-fired', {
-                normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
+                normalizedPostUrl,
                 blockers: timerBlockers,
-                imgFound: Boolean(img)
+                imgFound: Boolean(img),
+                waitMs: Math.round(nowMs() - pending.startedAt),
+                intendedWaitMs: CONFIG.fallbackDelayMs
             });
             if (timerBlockers.length) {
                 yieldToNativeMedia(host, el);
                 return;
             }
-            buildOverlay(el, img, postHref);
+            buildOverlay(el, el.querySelector('img') || img, postHref);
         }, CONFIG.fallbackDelayMs);
 
-        fallbackTimers.set(host, timer);
+        fallbackTimers.set(host, pending);
     }
 
     function processBlurredContainer(el) {
