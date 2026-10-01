@@ -9,7 +9,8 @@ const boundary = source.indexOf('    const mo = new MutationObserver');
 assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
-    findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia };
+    findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
+    attachImageRenderDebug, yieldToNativeMedia };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -73,6 +74,9 @@ class ShadowRoot extends Element {
     }
     getElementById(id) { return this.nodes.get(id); }
 }
+class HTMLImageElement extends Element {
+    constructor() { super('img'); }
+}
 class BrowserURL extends URL {
     static createObjectURL(blob) { const key = 'blob:test-' + blobs.size; blobs.set(key, blob); return key; }
     static revokeObjectURL(url) { revoked.push(url); }
@@ -92,7 +96,7 @@ const context = {
     window: { innerWidth: 1280, innerHeight: 720, scrollY: 1200 },
     navigator: { userAgent: 'Diagnostic test browser' },
     location: { href: 'https://www.reddit.com/r/test/comments/abc/', origin: 'https://www.reddit.com', pathname: '/r/test/comments/abc/' },
-    document, Element, Document: class {}, URL: BrowserURL, Blob, Date: FixedDate,
+    document, Element, HTMLImageElement, Document: class {}, URL: BrowserURL, Blob, Date: FixedDate,
     console: { log() { throw new Error('Console diagnostics must be gated by default'); } },
     performance: { now: () => clockMs },
     getComputedStyle: node => node.style,
@@ -104,6 +108,57 @@ vm.runInContext(instrumented, context);
 const { subject } = context;
 
 async function checkDiagnostics(reporter) {
+    const image = new HTMLImageElement();
+    Object.assign(image, { isConnected: true, src: 'https://i.redd.it/render.jpg', complete: true,
+        naturalWidth: 640, naturalHeight: 960, clientWidth: 360, clientHeight: 540 });
+    image.box = { width: 360, height: 540 };
+    subject.attachImageRenderDebug(image, 'render-check');
+    const sampleTimers = [...timers.entries()].slice(-3);
+    const suppressedBeforeImage = reporter.suppressedEntries;
+    for (const [id, fn] of sampleTimers) { timers.delete(id); fn(); }
+    assert.equal(reporter.entries.filter(entry => entry.event === 'render-check').length, 1,
+        'identical healthy image snapshots retain one state instead of three phases');
+    assert.equal(reporter.suppressedEntries, suppressedBeforeImage + 2);
+    image.box = { width: 0, height: 0 };
+    image.isConnected = false;
+    await image.emit('load');
+    const detached = reporter.entries.filter(entry => entry.event === 'render-check').at(-1);
+    assert.equal(JSON.parse(detached.details).connected, false);
+    assert.equal(JSON.parse(detached.details).rectHeight, 0);
+    const beforeErrors = reporter.entries.length;
+    await image.emit('error');
+    await image.emit('error');
+    assert.equal(reporter.entries.length, beforeErrors + 2, 'error notifications remain protected even with identical state');
+
+    const handoffHost = new Element();
+    handoffHost.isConnected = true;
+    handoffHost.dataset.tmMediaBuilt = '1';
+    handoffHost.dataset.tmFallbackMinHeightApplied = '1';
+    handoffHost.style.minHeight = '540px';
+    const handoffBlur = new Element('shreddit-blurred-container');
+    handoffBlur.attrs.reason = 'nsfw';
+    const nativeImage = new Element('img');
+    Object.assign(nativeImage, { complete: true, naturalWidth: 640, naturalHeight: 960 });
+    nativeImage.attrs.src = 'https://cf.preview.redd.it/render.jpg';
+    nativeImage.getBoundingClientRect = () => ({ width: 360, height: handoffHost.style.minHeight ? 540 : 0 });
+    handoffHost.getBoundingClientRect = nativeImage.getBoundingClientRect;
+    handoffHost.appendChild(handoffBlur);
+    handoffHost.appendChild(nativeImage);
+    assert.equal(subject.yieldToNativeMedia(handoffHost, handoffBlur), true);
+    const handoff = reporter.entries.filter(entry => entry.event === 'fallback-yielded-to-native').at(-1);
+    assert.equal(JSON.parse(handoff.details).hostHeightBefore, 540);
+    assert.equal(JSON.parse(handoff.details).hostHeightAfter, 0);
+    assert.equal(JSON.parse(handoff.details).nativeStillResolved, false);
+    assert.ok(reporter.entries.some(entry => entry.event === 'native-handoff-layout-lost'),
+        'handoff diagnostics detect native layout relying on removed fallback sizing');
+    handoffHost.dataset.tmMediaBuilt = '1';
+    nativeImage.getBoundingClientRect = () => ({ width: 360, height: 540 });
+    handoffHost.getBoundingClientRect = nativeImage.getBoundingClientRect;
+    const lostBefore = reporter.entries.filter(entry => entry.event === 'native-handoff-layout-lost').length;
+    subject.yieldToNativeMedia(handoffHost, handoffBlur);
+    assert.equal(reporter.entries.filter(entry => entry.event === 'native-handoff-layout-lost').length, lostBefore,
+        'stable native handoffs do not report layout loss');
+
     const before = reporter.entries.length;
     const suppressedBefore = reporter.suppressedEntries;
     const scopes = Array.from({ length: 49 }, () => new Element());

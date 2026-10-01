@@ -153,6 +153,15 @@ async function run() {
         'source selection honors Reddit height caps on collapsed media hosts');
     assert.equal(subject.selectDisplayImageSource(media, layout).src, resolution(640).url,
         'portrait images use the smallest full-frame preview that fits the actual displayed box');
+    const cdnResolution = { ...resolution(640), url: resolution(640).url.replace('preview.redd.it', 'cf.preview.redd.it').replace('&format=', '&crop=smart&format=') };
+    const cdnSelected = subject.selectDisplayImageSource({ ...media, resolutions: [cdnResolution] }, layout);
+    assert.equal(cdnSelected.src, cdnResolution.url, 'the Reddit CDN host observed in field logs supports sized previews');
+    assert.equal(cdnSelected.previewCandidates.hosts['cf.preview.redd.it'], 1);
+    assert.equal(cdnSelected.previewCandidates.eligible, 1);
+    const impostor = { ...cdnResolution, url: cdnResolution.url.replace('cf.preview.redd.it', 'cf.preview.redd.it.example.test') };
+    const rejectedHost = subject.selectDisplayImageSource({ ...media, resolutions: [impostor] }, layout);
+    assert.equal(rejectedHost.src, originalSrc);
+    assert.equal(rejectedHost.previewCandidates.rejected['unsupported-host'], 1);
     context.window.devicePixelRatio = 2;
     assert.equal(subject.selectDisplayImageSource(media, layout).src, resolution(960).url,
         'high-density screens receive enough image pixels');
@@ -169,12 +178,16 @@ async function run() {
     subject.CONFIG.useSizedImagePreviews = true;
     const unsafe = [
         { ...resolution(640), url: resolution(640).url.replace('#image', '&blur=40') },
-        { ...resolution(640), url: resolution(640).url.replace('#image', '&crop=smart') },
+        { ...resolution(640), url: resolution(640).url.replace('#image', '&crop=faces') },
         { ...resolution(640), height: 640 },
         { ...resolution(640), width: NaN },
         { ...resolution(640), url: 'not-a-url' }
     ];
-    assert.equal(subject.selectDisplayImageSource({ ...media, resolutions: unsafe }, layout).src, originalSrc);
+    const rejected = subject.selectDisplayImageSource({ ...media, resolutions: unsafe }, layout);
+    assert.equal(rejected.src, originalSrc);
+    for (const reason of ['blurred', 'cropped', 'aspect-ratio', 'invalid-dimensions', 'unsupported-host']) {
+        assert.equal(rejected.previewCandidates.rejected[reason], 1);
+    }
     const encoded = { ...resolution(640), url: resolution(640).url.replaceAll('&', '&amp;') };
     assert.equal(subject.selectDisplayImageSource({ ...media, resolutions: [encoded] }, layout).src, resolution(640).url,
         'advertised preview signatures and query/hash fields survive HTML decoding');
@@ -204,6 +217,13 @@ async function run() {
     lastImage.listeners.get('load')();
     assert.equal((await retryOriginal).src, originalSrc);
     assert.equal(timers.size, 0);
+    const croppedPixels = subject.preloadFallbackImage({ ...media, resolutions: [cdnResolution] }, layout, () => true, '/comments/cropped/');
+    lastImage.naturalWidth = 640; lastImage.naturalHeight = 640;
+    lastImage.listeners.get('load')();
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+    assert.equal(lastImage.src, originalSrc, 'a smart-crop preview with mismatched loaded dimensions retries the original');
+    lastImage.listeners.get('load')();
+    assert.equal((await croppedPixels).src, originalSrc);
     const obsolete = subject.preloadFallbackImage(media, layout, () => false, '/comments/obsolete/');
     const abandonedImage = lastImage;
     lastImage.listeners.get('error')();

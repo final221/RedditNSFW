@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.36
+// @version      1.37
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.36';
+    const SCRIPT_VERSION = '1.37';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
@@ -528,7 +528,7 @@
 
         try {
             const u = new URL(decodeHtml(url), location.origin);
-            return u.hostname === 'preview.redd.it' || u.hostname === 'external-preview.redd.it';
+            return u.hostname === 'preview.redd.it' || u.hostname === 'cf.preview.redd.it' || u.hostname === 'external-preview.redd.it';
         } catch {
             return false;
         }
@@ -723,26 +723,42 @@
 
     function selectDisplayImageSource(media, layout) {
         const original = { src: media.src, reason: 'original', targetWidth: null, targetHeight: null };
-        if (!CONFIG.useSizedImagePreviews || media.animated || !(media.width > 0 && media.height > 0) ||
-            !(layout?.width > 0 && layout?.height > 0)) return original;
+        if (!CONFIG.useSizedImagePreviews) return { ...original, reason: 'original-sizing-disabled' };
+        if (media.animated) return { ...original, reason: 'original-animation' };
+        if (!(media.width > 0 && media.height > 0)) return { ...original, reason: 'original-missing-dimensions' };
+        if (!(layout?.width > 0 && layout?.height > 0)) return { ...original, reason: 'original-missing-layout' };
 
         const ratio = media.width / media.height;
         const cssWidth = Math.min(layout.width, layout.height * ratio, media.width);
         const pixelRatio = Math.max(1, window.devicePixelRatio || 1);
         const targetWidth = Math.ceil(cssWidth * pixelRatio);
         const targetHeight = Math.ceil(cssWidth / ratio * pixelRatio);
-        const candidates = (Array.isArray(media.resolutions) ? media.resolutions : []).map(entry => ({
+        const resolutions = Array.isArray(media.resolutions) ? media.resolutions : [];
+        const previewCandidates = { total: resolutions.length, eligible: 0, hosts: Object.create(null), rejected: Object.create(null) };
+        const candidates = resolutions.map(entry => ({
             src: decodeUrl(entry?.url || entry?.u),
             width: Number(entry?.width || entry?.x),
             height: Number(entry?.height || entry?.y)
         })).filter(entry => {
-            if (!isPreviewImageUrl(entry.src) || !Number.isFinite(entry.width) || !Number.isFinite(entry.height) ||
-                entry.width <= 0 || entry.height <= 0 || entry.width + 1 < targetWidth || entry.height + 1 < targetHeight ||
-                entry.width * entry.height >= media.width * media.height ||
-                Math.abs(entry.width / entry.height / ratio - 1) > 0.02) return false;
-            const url = new URL(entry.src);
+            let url;
+            try { url = new URL(entry.src); } catch {}
+            const hostname = url?.hostname || 'invalid-url';
+            previewCandidates.hosts[hostname] = (previewCandidates.hosts[hostname] || 0) + 1;
+            let rejection = null;
             // Use advertised, signed full-frame previews; never fabricate or unblur their URLs.
-            return !url.searchParams.has('blur') && !url.searchParams.has('crop');
+            if (!isPreviewImageUrl(entry.src)) rejection = 'unsupported-host';
+            else if (!Number.isFinite(entry.width) || !Number.isFinite(entry.height) || entry.width <= 0 || entry.height <= 0) rejection = 'invalid-dimensions';
+            else if (url.searchParams.has('blur')) rejection = 'blurred';
+            else if (url.searchParams.has('crop') && url.searchParams.get('crop') !== 'smart') rejection = 'cropped';
+            else if (entry.width + 1 < targetWidth || entry.height + 1 < targetHeight) rejection = 'too-small';
+            else if (entry.width * entry.height >= media.width * media.height) rejection = 'not-smaller-than-original';
+            else if (Math.abs(entry.width / entry.height / ratio - 1) > 0.02) rejection = 'aspect-ratio';
+            if (rejection) {
+                previewCandidates.rejected[rejection] = (previewCandidates.rejected[rejection] || 0) + 1;
+                return false;
+            }
+            previewCandidates.eligible += 1;
+            return true;
         }).sort((a, b) => a.width * a.height - b.width * b.height);
         const selected = candidates[0];
         return {
@@ -750,7 +766,8 @@
             reason: selected ? 'display-sized-preview' : 'original-no-suitable-preview',
             targetWidth, targetHeight,
             sourceWidth: selected?.width || media.width,
-            sourceHeight: selected?.height || media.height
+            sourceHeight: selected?.height || media.height,
+            previewCandidates
         };
     }
 
@@ -761,13 +778,20 @@
             const startedAt = nowMs();
             const image = await preloadImage(src);
             if (!canContinue()) return null;
+            // Some previews advertise full-frame dimensions but load cropped pixels.
+            const matchesFrame = src === media.src || (image?.naturalWidth > 0 && image?.naturalHeight > 0 &&
+                Math.abs((image.naturalWidth / image.naturalHeight) / (media.width / media.height) - 1) <= 0.02);
             recordDebug('image-preload', {
                 normalizedPostUrl, src, ok: Boolean(image),
+                usable: Boolean(image) && matchesFrame,
                 elapsedMs: Math.round(nowMs() - startedAt),
                 naturalWidth: image?.naturalWidth || 0, naturalHeight: image?.naturalHeight || 0
             });
-            if (image) return { image, src };
-            if (src !== media.src) recordDebug('image-preview-failed', { normalizedPostUrl, src, retrySrc: media.src });
+            if (image && matchesFrame) return { image, src };
+            if (src !== media.src) recordDebug('image-preview-failed', {
+                normalizedPostUrl, src, retrySrc: media.src,
+                reason: image ? 'loaded-aspect-ratio' : 'load-failed'
+            });
         }
         return null;
     }
@@ -1198,15 +1222,25 @@
 
         const hasCustomLayer = host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1' || Boolean(host.querySelector(':scope > .tm-unblur-media-layer, :scope > .tm-nsfw-overlay'));
         if (!hasCustomLayer) return false;
-        if (!hasNativeResolvedMedia(host, blurContainer)) return false;
+        const nativeOwner = findNativeMediaOwner(host, blurContainer);
+        if (!nativeOwner) return false;
 
-        recordDebug('fallback-yielded-to-native', {
+        const handoff = {
             normalizedPostUrl: resolvePostHref(blurContainer, host),
             hadOverlay: host.dataset.tmOverlayBuilt === '1',
-            hadMediaLayer: host.dataset.tmMediaBuilt === '1'
-        });
+            hadMediaLayer: host.dataset.tmMediaBuilt === '1',
+            nativeOwner: describeNativeOwner(nativeOwner),
+            hostHeightBefore: Math.round(host.getBoundingClientRect().height)
+        };
 
         removeCustomLayer(host);
+        const nativeAfter = findNativeMediaOwner(host, blurContainer);
+        recordDebug('fallback-yielded-to-native', {
+            ...handoff,
+            hostHeightAfter: Math.round(host.getBoundingClientRect().height),
+            nativeStillResolved: Boolean(nativeAfter)
+        });
+        if (!nativeAfter) recordDebug('native-handoff-layout-lost', handoff);
         return true;
     }
 
@@ -1387,6 +1421,7 @@
 
         return {
             ...extra,
+            connected: img.isConnected,
             src: img.currentSrc || img.src || null,
             complete: img.complete,
             naturalWidth: img.naturalWidth || 0,
@@ -1404,12 +1439,19 @@
     function attachImageRenderDebug(img, eventName, details = {}) {
         if (!(img instanceof HTMLImageElement)) return;
 
+        let lastState = null;
         const record = (phase, extra = {}) => {
-            recordDebug(eventName, snapshotImageState(img, {
-                phase,
+            const state = snapshotImageState(img, {
                 ...details,
                 ...extra
-            }));
+            });
+            const fingerprint = JSON.stringify(state);
+            if (phase !== 'error' && fingerprint === lastState) {
+                sharedLog.suppressedEntries += 1;
+                return;
+            }
+            lastState = fingerprint;
+            recordDebug(eventName, { phase, ...state });
         };
 
         img.addEventListener('load', () => record('load'), { once: true });

@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.3.0**
+Current: **1.4.0**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
@@ -37,4 +37,4 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - Default branch: `main`
 
 ## Recovery behavior
-Image Recreation 1.36 preserves pending fallback deadlines across rescans and uses sharp, display-sized previews for reconstructed single images, accounting for screen pixel density and Reddit height caps. Failed previews retry the original image. The Copy log report includes the selected source, target dimensions, grace-period wait, fetch time, preload time, and build time. It retains native video and embed playback priority, cancels obsolete fallback attempts after fetch/preload, checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
+Image Recreation 1.37 supports advertised previews on Reddit's `cf.preview.redd.it` CDN and accepts `crop=smart` when advertised and loaded aspect ratios match. Reports explain rejected preview candidates and native handoff layout changes, and identical image snapshots are suppressed. It preserves pending fallback deadlines across rescans and uses sharp, display-sized previews for reconstructed single images, accounting for screen pixel density and Reddit height caps. Failed previews retry the original image. The Copy log report includes the selected source, target dimensions, grace-period wait, fetch time, preload time, and build time. It retains native video and embed playback priority, cancels obsolete fallback attempts after fetch/preload, checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.

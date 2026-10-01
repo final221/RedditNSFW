@@ -1,4 +1,19 @@
 # Changelog
+## 1.4.0 - 2026-10-01T18:18:57.393Z
+Previous: 1.3.0
+Commit: 475f052
+Changes:
+- Reduce fallback image loading delays while scrolling
+- Connect durable context to the agent workflow
+- Improve log retention and targeted media diagnostics
+- Add fixed Copy log control and clipboard fallback
+- Restore userscript 1.31 behavior as version 1.33
+- Publish restored 1.28 code as userscript 1.32
+- Revert media refinements and restore exact userscript 1.28
+- Restore native playback priority and cancel obsolete fallbacks
+- Prevent native animation bleed-through around fallback videos
+- Fix media recovery retries and native readiness checks
+
 ## 1.3.0 - 2026-10-01T15:48:29.740Z
 Previous: 1.2.1
 Commit: 6e1b2e2
