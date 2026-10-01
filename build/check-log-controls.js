@@ -10,7 +10,7 @@ assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
-    attachImageRenderDebug, yieldToNativeMedia };
+    attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -158,6 +158,72 @@ async function checkDiagnostics(reporter) {
     subject.yieldToNativeMedia(handoffHost, handoffBlur);
     assert.equal(reporter.entries.filter(entry => entry.event === 'native-handoff-layout-lost').length, lostBefore,
         'stable native handoffs do not report layout loss');
+
+    const frames = [];
+    context.requestAnimationFrame = fn => frames.push(fn);
+    const followupCount = () => reporter.entries.filter(entry => entry.event === 'native-handoff-followup').length;
+    const readFollowup = () => JSON.parse(reporter.entries.filter(entry => entry.event === 'native-handoff-followup').at(-1).details);
+    const finishFollowup = () => {
+        const [id, fn] = [...timers.entries()].at(-1);
+        timers.delete(id);
+        fn();
+    };
+    const owner = subject.findNativeMediaOwner(handoffHost, handoffBlur);
+    const countBefore = followupCount();
+    subject.observeNativeImageHandoff(handoffHost, handoffBlur, owner, context.location.href);
+    nativeImage.getBoundingClientRect = () => ({ width: 360, height: 0 });
+    handoffHost.getBoundingClientRect = nativeImage.getBoundingClientRect;
+    clockMs = 16;
+    frames.shift()();
+    nativeImage.getBoundingClientRect = () => ({ width: 360, height: 540 });
+    handoffHost.getBoundingClientRect = nativeImage.getBoundingClientRect;
+    clockMs = 32;
+    frames.shift()();
+    clockMs = 250;
+    finishFollowup();
+    assert.equal(followupCount(), countBefore + 1, 'one bounded event records all followup samples');
+    let followup = readFollowup();
+    assert.deepEqual(followup.checks.map(check => check.phase), ['frame-1', 'frame-2', 'after-250ms']);
+    assert.equal(followup.checks[0].sameTarget, true);
+    assert.equal(followup.checks[0].nativeStillResolved, false, 'a transient frame collapse is captured even if final layout recovers');
+    assert.equal(followup.checks[0].hostHeight, 0);
+    assert.equal(followup.checks[2].nativeStillResolved, true);
+    assert.equal(followup.checks[2].elapsedMs, 250);
+
+    subject.observeNativeImageHandoff(handoffHost, handoffBlur, owner, context.location.href);
+    handoffHost.isConnected = false;
+    finishFollowup();
+    followup = readFollowup();
+    assert.equal(followup.checks[0].sameTarget, false, 'detached or replaced targets are distinguished from layout failures');
+    assert.equal(followup.checks[0].hostHeight, null);
+    const countAfter = followupCount();
+    frames.shift()();
+    assert.equal(frames.length, 0, 'late frame callbacks do not schedule further work after final sample');
+    assert.equal(followupCount(), countAfter);
+    handoffHost.isConnected = true;
+
+    document.visibilityState = 'hidden';
+    subject.observeNativeImageHandoff(handoffHost, handoffBlur, owner, context.location.href);
+    assert.equal(frames.length, 0, 'hidden tabs skip animation-frame observations');
+    finishFollowup();
+    assert.equal(readFollowup().checks.length, 1);
+    assert.equal(readFollowup().visibility, 'hidden');
+    document.visibilityState = 'visible';
+    const timersBeforeVideo = timers.size;
+    subject.observeNativeImageHandoff(handoffHost, handoffBlur, { node: new Element('video') }, context.location.href);
+    assert.equal(timers.size, timersBeforeVideo, 'video handoffs add no image followup work');
+    delete context.requestAnimationFrame;
+
+    handoffHost.box = { width: 360, height: 540, top: 500, bottom: 1040, left: 10, right: 370 };
+    delete handoffHost.getBoundingClientRect;
+    assert.equal(subject.snapshotHostViewport(handoffHost).intersectsViewport, true);
+    handoffHost.box.top = 721;
+    handoffHost.box.bottom = 1261;
+    assert.equal(subject.snapshotHostViewport(handoffHost).intersectsViewport, false, 'offscreen image waits are distinguishable');
+    handoffHost.box.top = 500;
+    handoffHost.isConnected = false;
+    assert.equal(subject.snapshotHostViewport(handoffHost).intersectsViewport, false);
+    assert.equal(subject.snapshotHostViewport(null), null);
 
     const before = reporter.entries.length;
     const suppressedBefore = reporter.suppressedEntries;

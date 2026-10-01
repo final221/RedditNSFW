@@ -17,7 +17,7 @@ The standalone Auto Unblur script has been removed. These settings apply to the 
 - Integrity rescan interval: the script reprocesses live NSFW blur containers every `1500ms` so lost fallback layers can be recovered after Reddit rerenders
 - URL polling interval: the script currently rescans on a `500ms` interval to catch client-side navigation
 
-The Copy log control uses viewport-fixed positioning and is reattached by the existing 1500ms integrity rescan. It adds no extra polling interval and does not change media recovery timing. Player progress, visibility/rendered boxes, and up to 12 viewport-prioritized media samples are collected only on export; regular status comparisons omit playback time. Clipboard access is requested only on a button click; failed access opens a manual-copy panel.
+The Copy log control uses viewport-fixed positioning and is reattached by the existing 1500ms integrity rescan. It adds no extra polling interval and does not change media recovery timing. Image handoffs add at most two animation-frame checks and one 250ms timeout, grouped into one retained event; hidden tabs skip frame checks and late callbacks stop at the final sample. Host viewport boxes are sampled only at fallback timer firing, source selection, and load completion; no scroll listener or polling interval is added. Player progress, visibility/rendered boxes, and up to 12 viewport-prioritized media samples are collected only on export; regular status comparisons omit playback time. Clipboard access is requested only on a button click; failed access opens a manual-copy panel.
 
 ## Tuning rule
 - Prefer the smallest change that restores behavior on live Reddit pages.

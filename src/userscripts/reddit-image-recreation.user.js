@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.37
+// @version      1.38
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.37';
+    const SCRIPT_VERSION = '1.38';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
@@ -771,9 +771,24 @@
         };
     }
 
-    async function preloadFallbackImage(media, layout, canContinue, normalizedPostUrl) {
+    function snapshotHostViewport(host) {
+        if (!host) return null;
+        const box = host.getBoundingClientRect();
+        return {
+            connected: host.isConnected,
+            intersectsViewport: host.isConnected && box.width > 0 && box.height > 0 &&
+                box.bottom > 0 && box.top < window.innerHeight &&
+                box.right > 0 && box.left < window.innerWidth,
+            top: Math.round(box.top), bottom: Math.round(box.bottom),
+            scrollY: Math.round(window.scrollY), visibility: document.visibilityState
+        };
+    }
+
+    async function preloadFallbackImage(media, layout, canContinue, normalizedPostUrl, host) {
         const selected = selectDisplayImageSource(media, layout);
-        recordDebug('image-source-selected', { normalizedPostUrl, originalSrc: media.src, ...selected });
+        recordDebug('image-source-selected', {
+            normalizedPostUrl, originalSrc: media.src, ...selected, viewport: snapshotHostViewport(host)
+        });
         for (const src of new Set([selected.src, media.src])) {
             const startedAt = nowMs();
             const image = await preloadImage(src);
@@ -785,7 +800,8 @@
                 normalizedPostUrl, src, ok: Boolean(image),
                 usable: Boolean(image) && matchesFrame,
                 elapsedMs: Math.round(nowMs() - startedAt),
-                naturalWidth: image?.naturalWidth || 0, naturalHeight: image?.naturalHeight || 0
+                naturalWidth: image?.naturalWidth || 0, naturalHeight: image?.naturalHeight || 0,
+                viewport: snapshotHostViewport(host)
             });
             if (image && matchesFrame) return { image, src };
             if (src !== media.src) recordDebug('image-preview-failed', {
@@ -1217,6 +1233,44 @@
         return true;
     }
 
+    function observeNativeImageHandoff(host, blurContainer, previousOwner, postUrl) {
+        if (!previousOwner?.node.matches('img')) return;
+        const startedAt = nowMs();
+        const checks = [];
+        const expectedPostUrl = normalizePostHref(postUrl) || postUrl;
+        let finished = false;
+        const sample = (phase) => {
+            if (finished) return;
+            const connected = host.isConnected && blurContainer.isConnected && getOverlayHost(blurContainer) === host;
+            const currentPostUrl = connected ? resolvePostHref(blurContainer, host) : null;
+            const sameTarget = connected && (normalizePostHref(currentPostUrl) || currentPostUrl) === expectedPostUrl;
+            const owner = sameTarget ? findNativeMediaOwner(host, blurContainer) : null;
+            const box = sameTarget ? host.getBoundingClientRect() : null;
+            checks.push({
+                phase, elapsedMs: Math.round(nowMs() - startedAt),
+                sameTarget, previousImageConnected: previousOwner.node.isConnected,
+                nativeStillResolved: Boolean(owner),
+                hostWidth: box ? Math.round(box.width) : null,
+                hostHeight: box ? Math.round(box.height) : null,
+                nativeOwner: describeNativeOwner(owner, true)
+            });
+        };
+        if (typeof requestAnimationFrame === 'function' && document.visibilityState !== 'hidden') {
+            requestAnimationFrame(() => {
+                if (finished) return;
+                sample('frame-1');
+                requestAnimationFrame(() => sample('frame-2'));
+            });
+        }
+        setTimeout(() => {
+            sample('after-250ms');
+            finished = true;
+            recordDebug('native-handoff-followup', {
+                normalizedPostUrl: expectedPostUrl, visibility: document.visibilityState, checks
+            });
+        }, 250);
+    }
+
     function yieldToNativeMedia(host, blurContainer) {
         if (!(host instanceof Element) || !(blurContainer instanceof Element)) return false;
 
@@ -1241,6 +1295,7 @@
             nativeStillResolved: Boolean(nativeAfter)
         });
         if (!nativeAfter) recordDebug('native-handoff-layout-lost', handoff);
+        observeNativeImageHandoff(host, blurContainer, nativeOwner, handoff.normalizedPostUrl);
         return true;
     }
 
@@ -1909,7 +1964,7 @@
                             naturalWidth: media.width, naturalHeight: media.height
                         });
                         const loaded = await preloadFallbackImage(media, targetLayout,
-                            () => canContinueFallback(host, blurContainer, overlay), normalizedPostUrl);
+                            () => canContinueFallback(host, blurContainer, overlay), normalizedPostUrl, host);
                         if (!canContinueFallback(host, blurContainer, overlay)) return;
                         if (loaded) {
                             const layout = measureFallbackLayout(host, blurContainer, img, loaded.image);
@@ -2019,7 +2074,8 @@
                 blockers: timerBlockers,
                 imgFound: Boolean(img),
                 waitMs: Math.round(nowMs() - pending.startedAt),
-                intendedWaitMs: CONFIG.fallbackDelayMs
+                intendedWaitMs: CONFIG.fallbackDelayMs,
+                viewport: snapshotHostViewport(host)
             });
             if (timerBlockers.length) {
                 yieldToNativeMedia(host, el);

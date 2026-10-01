@@ -202,14 +202,26 @@ async function run() {
     });
     assert.equal(subject.selectDisplayImageSource(metadata, layout).src, resolution(640).url);
 
-    const previewSuccess = subject.preloadFallbackImage(media, layout, () => true, '/comments/preview/');
+    Object.assign(context.window, { innerHeight: 720, innerWidth: 1280, scrollY: 0 });
+    context.document.visibilityState = 'visible';
+    const waitingHost = new Element();
+    waitingHost.box = { width: 360, height: 540, top: 500, bottom: 1040, left: 0, right: 360 };
+    const previewSuccess = subject.preloadFallbackImage(media, layout, () => true, '/comments/preview/', waitingHost);
+    const selectedEvent = subject.getSharedLogReporter().entries.filter(entry => entry.event === 'image-source-selected').at(-1);
+    assert.equal(JSON.parse(selectedEvent.details).viewport.intersectsViewport, true);
     assert.equal(lastImage.src, resolution(640).url);
     lastImage.naturalWidth = 640; lastImage.naturalHeight = 960;
     clockMs += 75;
+    waitingHost.box.top = -600;
+    waitingHost.box.bottom = -60;
+    context.window.scrollY = 1100;
     lastImage.listeners.get('load')();
     assert.equal((await previewSuccess).src, resolution(640).url);
     const preloadEvent = subject.getSharedLogReporter().entries.filter(entry => entry.event === 'image-preload').at(-1);
     assert.equal(JSON.parse(preloadEvent.details).elapsedMs, 75);
+    assert.equal(JSON.parse(preloadEvent.details).viewport.intersectsViewport, false,
+        'completion records that the user has already scrolled past an image which started loading on screen');
+    assert.equal(JSON.parse(preloadEvent.details).viewport.scrollY, 1100);
     const retryOriginal = subject.preloadFallbackImage(media, layout, () => true, '/comments/retry/');
     lastImage.listeners.get('error')();
     for (let i = 0; i < 4; i++) await Promise.resolve();

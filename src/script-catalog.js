@@ -25,7 +25,7 @@ const SCRIPT_CATALOG = {
         "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
         "window.redditNSFWExportLog() and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, fallback layout seeding details and height caps, fallback image render-state snapshots, native handoff events, and lost-layer recovery events",
-        "Image diagnostics include selected/original sources, candidate host/rejection counts, target/source dimensions, actual/intended fallback wait, and fetch/preload/build elapsed times; identical render states are suppressed, detached images are marked, and native handoff height/ownership changes are recorded",
+        "Image diagnostics include selected/original sources, candidate host/rejection counts, target/source dimensions, actual/intended fallback wait, and fetch/preload/build elapsed times; identical render states are suppressed, detached images are marked, native handoff height/ownership changes are recorded immediately and over two frames plus 250ms, and timer/source/load viewport snapshots relate waits to scrolling",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
