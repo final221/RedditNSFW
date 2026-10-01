@@ -23,6 +23,7 @@
 - Do not parallelize dependent git setup steps such as `git init`, remote creation, or first-push wiring.
 
 ## Start
+- `context.md`
 - `package.json`
 - `build/agent-verify.js`
 - `build/agent-commit.js`
@@ -31,6 +32,10 @@
 - `docs/CONTEXT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/SCRIPTS.md`
+
+## Durable context
+- Read [context.md](context.md) at the start of each run for durable user preferences and cross-cutting knowledge. [docs/CONTEXT.md](docs/CONTEXT.md) remains the repository navigation and debugging map.
+- Review `context.md` before finishing every run. Edit only its unprotected sections when durable knowledge changed, following its own inclusion and exclusion rules; preserve the protected instructions verbatim.
 
 ## Agent quick map
 - Entry point: `src/userscripts/`
@@ -82,6 +87,7 @@
 - Generated script reference docs -> `docs/SCRIPTS.md`
 
 ## Quick refs
+- [context.md](context.md)
 - `docs/CONTEXT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/DEBUGGING.md`
