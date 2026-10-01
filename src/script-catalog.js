@@ -17,7 +17,10 @@ const SCRIPT_CATALOG = {
       debug: [
         "Console prefix: [Reddit External Unblur]",
         "Fixed bottom-right Copy log button copies diagnostics while scrolling; clipboard failures open a selected text area with Download log",
-        "Copied and downloaded reports share version/config/page snapshots, session metadata, retained/discarded event counts, and the bounded event trace",
+        "Copied and downloaded reports share version/config/page snapshots, session metadata, suppressed/discarded event counts, and the bounded event trace",
+        "Unchanged per-element scan/process/scheduling decisions are suppressed; routine state entries cannot evict fetch/recovery/failure history",
+        "Diagnostics include synchronous scan timings and slow-batch events, native ownership reasons and player errors, and up to 12 viewport-prioritized media snapshots with playback time and visibility",
+        "Known Reddit/Cloudflare challenge parameters are stripped from stored/exported log URLs; media query/hash diagnostics are preserved",
         "debugConsole gates console output (disabled by default); the in-memory trace remains active and resets on reload",
         "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
         "window.redditNSFWExportLog() and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
@@ -25,7 +28,7 @@ const SCRIPT_CATALOG = {
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "debugLogMaxEntries", "debugConsole", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "debugLogMaxEntries", "debugSlowScanMs", "debugConsole", "URL change polling interval"]
     }
   }
 };

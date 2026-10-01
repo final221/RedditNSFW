@@ -1,4 +1,19 @@
 # Changelog
+## 1.2.1 - 2026-10-01T14:08:34.242Z
+Previous: 1.2.0
+Commit: 9b18853
+Changes:
+- Add fixed Copy log control and clipboard fallback
+- Restore userscript 1.31 behavior as version 1.33
+- Publish restored 1.28 code as userscript 1.32
+- Revert media refinements and restore exact userscript 1.28
+- Restore native playback priority and cancel obsolete fallbacks
+- Prevent native animation bleed-through around fallback videos
+- Fix media recovery retries and native readiness checks
+- Remove unused standalone Auto Unblur script
+- Stop automated Reddit reveal clicks
+- Combine RedditNSFW log export
+
 ## 1.2.0 - 2026-10-01T12:45:28.534Z
 Previous: 1.1.2
 Commit: 15edd5a

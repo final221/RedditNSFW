@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.34
+// @version      1.35
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.34';
+    const SCRIPT_VERSION = '1.35';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
@@ -19,12 +19,33 @@
         videoRecoveryTimeoutMs: 1800,
         imagePreloadTimeoutMs: 8000,
         debugLogMaxEntries: 400,
+        debugSlowScanMs: 50,
         debugConsole: false
     };
     const REPORTER_KEY = '__redditNSFWLogReporter';
     let lastUrl = location.href;
     const mediaCache = new Map();
     const fallbackTimers = new WeakMap();
+    const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, last: null };
+    let measuringScan = false;
+
+    function sanitizeLogText(text) {
+        return String(text).replace(/https?:\/\/[^\s"'<>\\]+/gi, (raw) => {
+            try {
+                const url = new URL(raw);
+                let changed = false;
+                for (const key of [...url.searchParams.keys()]) {
+                    if (/^(solution|js_challenge|jsc_token|jsc_orig_r)$/i.test(key) || /^cf_chl_/i.test(key)) {
+                        url.searchParams.delete(key);
+                        changed = true;
+                    }
+                }
+                return changed ? url.href : raw;
+            } catch {
+                return raw;
+            }
+        });
+    }
 
     function describeElement(el) {
         if (!(el instanceof Element)) return String(el);
@@ -62,42 +83,68 @@
             maxEntries: CONFIG.debugLogMaxEntries * 2,
             startedAt: new Date().toISOString(),
             droppedEntries: 0,
+            droppedImportantEntries: 0,
+            suppressedEntries: 0,
+            lastStates: new WeakMap(),
             snapshots: {},
             stringify(details) {
                 if (details == null) return '';
-                if (typeof details === 'string') return details;
+                if (typeof details === 'string') return sanitizeLogText(details);
 
                 try {
-                    return JSON.stringify(details, (key, value) => describeLogValue(value), 2);
+                    return JSON.stringify(details, (key, value) => {
+                        const described = describeLogValue(value);
+                        return typeof described === 'string' ? sanitizeLogText(described) : described;
+                    }, 2);
                 } catch (err) {
-                    return String(err?.message || details);
+                    return sanitizeLogText(err?.message || details);
                 }
             },
             registerSource(source, snapshotFn) {
                 this.snapshots[source] = snapshotFn;
             },
-            record(source, event, details) {
+            record(source, event, details, routine = false) {
                 const timestamp = new Date().toISOString();
                 this.entries.push({
                     timestamp,
                     source,
                     event,
-                    details: this.stringify(details)
+                    details: this.stringify(details),
+                    routine
                 });
                 if (this.entries.length > this.maxEntries) {
-                    const dropped = this.entries.length - this.maxEntries;
-                    this.entries.splice(0, dropped);
-                    this.droppedEntries += dropped;
+                    // Routine state/timing entries cannot evict recovery or failure history.
+                    const routineIndex = this.entries.findIndex((entry) => entry.routine);
+                    const [dropped] = this.entries.splice(routineIndex < 0 ? 0 : routineIndex, 1);
+                    this.droppedEntries += 1;
+                    if (!dropped.routine) this.droppedImportantEntries += 1;
                 }
+                return true;
+            },
+            recordState(source, event, details, scope) {
+                let states = this.lastStates.get(scope);
+                if (!states) {
+                    states = new Map();
+                    this.lastStates.set(scope, states);
+                }
+                const key = source + ':' + event;
+                const state = this.stringify(details);
+                if (states.get(key) === state) {
+                    this.suppressedEntries += 1;
+                    return false;
+                }
+                states.set(key, state);
+                return this.record(source, event, details, !/(failed|error|timeout|missing)/.test(event));
             },
             format() {
                 const lines = [
                     'RedditNSFW Combined Debug Log',
                     `Generated: ${new Date().toISOString()}`,
                     `Session started: ${this.startedAt}`,
-                    `Page: ${location.href}`,
+                    `Page: ${sanitizeLogText(location.href)}`,
                     `User agent: ${navigator.userAgent}`,
-                    `Events retained: ${this.entries.length}/${this.maxEntries}; older events discarded: ${this.droppedEntries}`,
+                    `Events retained: ${this.entries.length}/${this.maxEntries}; events discarded: ${this.droppedEntries} (important: ${this.droppedImportantEntries})`,
+                    `Unchanged status entries suppressed: ${this.suppressedEntries}`,
                     '',
                     'Snapshots'
                 ];
@@ -121,7 +168,7 @@
                     lines.push('');
                 }
 
-                return lines.join('\n');
+                return sanitizeLogText(lines.join('\n'));
             },
             export() {
                 this.record('reporter', 'export-log', {
@@ -246,12 +293,66 @@
         }
     }
 
-    function recordDebug(event, details) {
-        sharedLog.record('image-recreation', event, details);
-        log(event, details);
+    function recordDebug(event, details, scope = null) {
+        const recorded = scope
+            ? sharedLog.recordState('image-recreation', event, details, scope)
+            : sharedLog.record('image-recreation', event, details);
+        if (recorded) log(event, details);
+        return recorded;
+    }
+
+    function measureScan(reason, work) {
+        // Mutation batches can call scan() many times; measure the outer batch once.
+        if (measuringScan) return work();
+        const now = () => typeof performance === 'undefined' ? Date.now() : performance.now();
+        const started = now();
+        const before = scanMetrics.processedContainers;
+        measuringScan = true;
+        try {
+            return work();
+        } finally {
+            measuringScan = false;
+            const durationMs = Math.round((now() - started) * 100) / 100;
+            scanMetrics.batches += 1;
+            scanMetrics.totalMs += durationMs;
+            scanMetrics.maxMs = Math.max(scanMetrics.maxMs, durationMs);
+            scanMetrics.last = {
+                reason,
+                durationMs,
+                processedContainers: scanMetrics.processedContainers - before
+            };
+            if (durationMs >= CONFIG.debugSlowScanMs) {
+                scanMetrics.slowBatches += 1;
+                recordDebug('scan-slow', { ...scanMetrics.last, visibility: document.visibilityState });
+            }
+        }
+    }
+
+    function collectMediaDiagnostics(containers) {
+        // Read render boxes only on export, and prioritize the posts near the viewport.
+        const posts = [...containers].map((blur) => {
+            const host = getOverlayHost(blur);
+            const rect = (host || blur).getBoundingClientRect();
+            return { blur, host, inViewport: rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < window.innerHeight };
+        });
+        posts.sort((a, b) => Number(b.inViewport) - Number(a.inViewport));
+        return {
+            totalContainers: posts.length,
+            sampleLimit: 12,
+            posts: posts.slice(0, 12).map(({ blur, host, inViewport }) => ({
+                normalizedPostUrl: normalizePostHref(resolvePostHref(blur, host)),
+                inViewport,
+                hasBlurredAttribute: blur.hasAttribute('blurred'),
+                blurredProperty: typeof blur.blurred === 'undefined' ? null : blur.blurred,
+                blockers: collectFallbackBlockers(host, blur),
+                nativeOwner: describeNativeOwner(findNativeMediaOwner(host, blur), true),
+                fallbackVideo: describeNativeOwner({ node: host?.querySelector('.tm-unblur-media-layer video'), reason: 'fallback-video' }, true)
+            }))
+        };
     }
 
     function collectPageSnapshot() {
+        const containers = document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]');
         return {
             version: SCRIPT_VERSION,
             config: { ...CONFIG },
@@ -260,9 +361,15 @@
             readyState: document.readyState,
             viewport: { width: window.innerWidth, height: window.innerHeight, scrollY: window.scrollY },
             cachedPosts: mediaCache.size,
-            matchingContainers: document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').length,
+            matchingContainers: containers.length,
             fallbackLayers: document.querySelectorAll('.tm-unblur-media-layer').length,
-            overlays: document.querySelectorAll('.tm-nsfw-overlay').length
+            overlays: document.querySelectorAll('.tm-nsfw-overlay').length,
+            scanTiming: {
+                ...scanMetrics,
+                totalMs: Math.round(scanMetrics.totalMs * 100) / 100,
+                averageMs: scanMetrics.batches ? Math.round(scanMetrics.totalMs / scanMetrics.batches * 100) / 100 : 0
+            },
+            mediaDiagnostics: collectMediaDiagnostics(containers)
         };
     }
 
@@ -954,26 +1061,63 @@
         return false;
     }
 
-    function hasNativeResolvedMedia(host, blurContainer) {
-        if (!(host instanceof Element)) return false;
+    function findNativeMediaOwner(host, blurContainer) {
+        if (!(host instanceof Element)) return null;
 
         // Reserve native playback before it has loaded. Replacing a loading player
         // with its JSON preview can cover the actual stream and prevent playback.
         const players = host.querySelectorAll('video, iframe, embed, object, shreddit-embed, shreddit-async-loader');
         for (const player of players) {
             if (player.closest('.tm-unblur-media-layer')) continue;
-            if (player.matches('video, iframe')) return true;
-            if (player.closest('[slot="revealed"]')) return true;
+            if (player.matches('video, iframe')) {
+                return { node: player, reason: player.matches('video') ? 'native-video-present' : 'native-iframe-present' };
+            }
+            if (player.closest('[slot="revealed"]')) return { node: player, reason: 'revealed-embed-present' };
         }
 
         const mediaNodes = host.querySelectorAll('img, video, iframe');
         for (const node of mediaNodes) {
             if (nodeHasUsableNativeMedia(node, blurContainer)) {
-                return true;
+                return { node, reason: node.matches('img') ? 'visible-loaded-image' : 'usable-native-media' };
             }
         }
 
-        return false;
+        return null;
+    }
+
+    function hasNativeResolvedMedia(host, blurContainer) {
+        return Boolean(findNativeMediaOwner(host, blurContainer));
+    }
+
+    function describeNativeOwner(owner, includeProgress = false) {
+        const node = owner?.node;
+        if (!(node instanceof Element)) return null;
+        const state = {
+            tag: String(node.tagName || node.tag || '').toLowerCase(),
+            reason: owner.reason,
+            src: node.currentSrc || node.getAttribute('src') || node.src || null
+        };
+        if (node.matches('video')) {
+            Object.assign(state, {
+                readyState: node.readyState ?? null,
+                networkState: node.networkState ?? null,
+                paused: node.paused ?? null,
+                ended: node.ended ?? null,
+                error: node.error ? { code: node.error.code, message: node.error.message || null } : null
+            });
+            // Playback progress changes constantly; sample it only when the user copies a log.
+            if (includeProgress) state.currentTime = Math.round((node.currentTime || 0) * 100) / 100;
+        } else if (node.matches('img')) {
+            Object.assign(state, { complete: node.complete, naturalWidth: node.naturalWidth, naturalHeight: node.naturalHeight });
+        } else {
+            state.playbackState = 'not-inspected';
+        }
+        if (includeProgress) {
+            state.visible = isVisibleNativeMedia(node);
+            const rect = node.getBoundingClientRect();
+            state.renderedBox = { width: Math.round(rect.width), height: Math.round(rect.height) };
+        }
+        return state;
     }
 
     function canContinueFallback(host, blurContainer, overlay) {
@@ -1006,7 +1150,7 @@
         return true;
     }
 
-    function collectFallbackBlockers(host, blurContainer) {
+    function collectFallbackBlockers(host, blurContainer, nativeOwner = findNativeMediaOwner(host, blurContainer)) {
         const blockers = [];
         if (!(host instanceof Element)) blockers.push('missing-host');
         if (!(blurContainer instanceof Element)) blockers.push('missing-blur-container');
@@ -1014,7 +1158,7 @@
         if ((blurContainer.getAttribute('reason') || '').toLowerCase() !== 'nsfw') blockers.push('non-nsfw');
         if (host.dataset.tmOverlayBuilt === '1') blockers.push('overlay-built');
         if (host.dataset.tmMediaBuilt === '1') blockers.push('media-built');
-        if (hasNativeResolvedMedia(host, blurContainer)) blockers.push('native-resolved');
+        if (nativeOwner) blockers.push('native-resolved');
         if (hasNativeRevealControl(host)) blockers.push('native-reveal-control');
         return blockers;
     }
@@ -1728,18 +1872,24 @@
             recordDebug('missing-overlay-host', {
                 currentUrl: location.href,
                 reason: getReason(el)
-            });
+            }, el);
             return;
         }
 
         clearPendingFallback(host);
 
-        const initialBlockers = collectFallbackBlockers(host, el);
-        recordDebug('schedule-fallback', {
+        const nativeOwner = findNativeMediaOwner(host, el);
+        const initialBlockers = collectFallbackBlockers(host, el, nativeOwner);
+        const nativeState = describeNativeOwner(nativeOwner);
+        const changed = recordDebug('schedule-fallback', {
             normalizedPostUrl: normalizePostHref(postHref) || postHref || null,
             blockers: initialBlockers,
+            nativeOwner: nativeState,
             imgFound: Boolean(img)
-        });
+        }, host);
+        if (changed && nativeState?.error) {
+            recordDebug('native-media-error', { normalizedPostUrl: normalizePostHref(postHref), nativeOwner: nativeState });
+        }
 
         if (initialBlockers.length) {
             yieldToNativeMedia(host, el);
@@ -1768,6 +1918,7 @@
         if (!(el instanceof Element)) return;
         const reason = getReason(el);
         if (!shouldHandleReason(reason)) return;
+        scanMetrics.processedContainers += 1;
 
         const host = getOverlayHost(el);
         unblurElement(el, host);
@@ -1779,8 +1930,10 @@
             reason,
             hostFound: Boolean(host),
             imgFound: Boolean(img),
+            hasBlurredAttribute: el.hasAttribute('blurred'),
+            blurredProperty: typeof el.blurred === 'undefined' ? null : el.blurred,
             normalizedPostUrl: normalizePostHref(postHref) || postHref || null
-        });
+        }, el);
 
         if (recoverMissingCustomLayer(host, el, postHref, img)) {
             return;
@@ -1789,20 +1942,22 @@
         scheduleFallbackBuild(el, img, postHref);
     }
 
-    function scan(root = document) {
+    function scan(root = document, reason = 'scan') {
         if (!(root instanceof Element || root instanceof Document)) return;
-        const blurred = root.querySelectorAll('shreddit-blurred-container[reason="nsfw"]');
-        if (blurred.length) {
-            recordDebug('scan-found-blurs', {
-                count: blurred.length,
-                currentUrl: location.href
-            });
-        }
-        blurred.forEach(processBlurredContainer);
+        return measureScan(reason, () => {
+            const blurred = root.querySelectorAll('shreddit-blurred-container[reason="nsfw"]');
+            if (blurred.length || root instanceof Document) {
+                recordDebug('scan-found-blurs', {
+                    count: blurred.length,
+                    currentUrl: location.href
+                }, root);
+            }
+            blurred.forEach(processBlurredContainer);
+        });
     }
 
 
-    const mo = new MutationObserver((mutations) => {
+    const mo = new MutationObserver((mutations) => measureScan('mutation', () => {
         for (const mutation of mutations) {
             if (mutation.type === 'attributes') {
                 const target = mutation.target;
@@ -1827,7 +1982,7 @@
                 }
             }
         }
-    });
+    }));
 
     function start() {
         recordDebug('script-start', {
@@ -1836,7 +1991,7 @@
             copyControl: 'Copy log'
         });
         ensureLogControl();
-        scan(document);
+        scan(document, 'startup');
 
         if (document.body) {
             mo.observe(document.body, {
@@ -1851,13 +2006,13 @@
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
                 recordDebug('url-changed', { page: lastUrl });
-                scan(document);
+                scan(document, 'navigation');
             }
         }, 500);
 
         setInterval(() => {
             ensureLogControl();
-            document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').forEach(processBlurredContainer);
+            scan(document, 'integrity');
         }, 1500);
     }
 
