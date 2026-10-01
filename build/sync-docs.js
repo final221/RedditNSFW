@@ -37,7 +37,7 @@ const syncDoc = (docPath, content, label) => {
     const exists = fs.existsSync(docPath);
     const existing = exists ? fs.readFileSync(docPath, 'utf8') : '';
     const newline = detectNewline(existing || content);
-    const normalized = content.replace(/\n/g, newline);
+    const normalized = content.replace(/\r?\n/g, newline);
 
     if (isCheck) {
         if (!exists || existing !== normalized) {

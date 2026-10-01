@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.1.2**
+Current: **1.2.0**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
@@ -19,8 +19,10 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - Root `.txt` files contain preserved failure examples for debugging.
 
 ## Field Logs
+- Click the fixed **Copy log** button at the bottom right of Reddit. It stays visible while scrolling and copies diagnostics ready to paste into chat.
+- If clipboard access is blocked, a panel opens with the entire log selected. Press Ctrl+C (or ⌘C), then paste it here. The panel also offers **Download log**.
 - Run `log()` in the browser console on Reddit to download `reddit-nsfw-log.txt`.
-- The file combines data from every loaded RedditNSFW script on the page.
+- Both paths combine loaded RedditNSFW script snapshots and the rolling event trace, including version, settings, page state, and media recovery failures. Logs stay in memory until a page reload; nothing is uploaded automatically.
 
 ## Workflow
 - Run `BUMP=patch|minor|major|none npm run agent:verify`.
@@ -34,4 +36,4 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - Default branch: `main`
 
 ## Recovery behavior
-Image Recreation 1.33 reserves native video and embed playback, including players still loading, and cancels obsolete fallback attempts after fetch/preload. It checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
+Image Recreation 1.34 adds the fixed Copy log control and manual clipboard fallback. It retains native video and embed playback priority, cancels obsolete fallback attempts after fetch/preload, checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.

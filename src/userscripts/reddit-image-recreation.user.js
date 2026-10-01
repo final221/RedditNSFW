@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.33
+// @version      1.34
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,13 +11,15 @@
 (function () {
     'use strict';
 
+    const SCRIPT_VERSION = '1.34';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
         useClickFallback: false,
         videoRecoveryTimeoutMs: 1800,
         imagePreloadTimeoutMs: 8000,
-        debugLogMaxEntries: 400
+        debugLogMaxEntries: 400,
+        debugConsole: false
     };
     const REPORTER_KEY = '__redditNSFWLogReporter';
     let lastUrl = location.href;
@@ -58,6 +60,8 @@
         const reporter = {
             entries: [],
             maxEntries: CONFIG.debugLogMaxEntries * 2,
+            startedAt: new Date().toISOString(),
+            droppedEntries: 0,
             snapshots: {},
             stringify(details) {
                 if (details == null) return '';
@@ -81,20 +85,19 @@
                     details: this.stringify(details)
                 });
                 if (this.entries.length > this.maxEntries) {
-                    this.entries.splice(0, this.entries.length - this.maxEntries);
+                    const dropped = this.entries.length - this.maxEntries;
+                    this.entries.splice(0, dropped);
+                    this.droppedEntries += dropped;
                 }
             },
-            export() {
-                this.record('reporter', 'export-log', {
-                    page: location.href,
-                    entries: this.entries.length
-                });
-
+            format() {
                 const lines = [
                     'RedditNSFW Combined Debug Log',
                     `Generated: ${new Date().toISOString()}`,
+                    `Session started: ${this.startedAt}`,
                     `Page: ${location.href}`,
                     `User agent: ${navigator.userAgent}`,
+                    `Events retained: ${this.entries.length}/${this.maxEntries}; older events discarded: ${this.droppedEntries}`,
                     '',
                     'Snapshots'
                 ];
@@ -118,7 +121,14 @@
                     lines.push('');
                 }
 
-                const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+                return lines.join('\n');
+            },
+            export() {
+                this.record('reporter', 'export-log', {
+                    page: location.href,
+                    entries: this.entries.length
+                });
+                const blob = new Blob([this.format()], { type: 'text/plain;charset=utf-8' });
                 const objectUrl = URL.createObjectURL(blob);
                 const anchor = document.createElement('a');
                 anchor.href = objectUrl;
@@ -139,6 +149,102 @@
     }
 
     const sharedLog = getSharedLogReporter();
+    let logControlHost;
+
+    // Keep diagnostic UI isolated from Reddit styles and the media recovery path.
+    function createLogControl(reporter) {
+        const host = document.createElement('div');
+        host.id = 'tm-reddit-nsfw-log-control';
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+            <style>
+                :host { all: initial; position: fixed !important; right: 16px !important;
+                    bottom: 24px !important; z-index: 2147483647 !important;
+                    font: 14px/1.5 system-ui, sans-serif; color: #f6f6fa; color-scheme: dark; }
+                * { box-sizing: border-box; }
+                [hidden] { display: none !important; }
+                button { font: inherit; cursor: pointer; border: 1px solid #646478;
+                    border-radius: 8px; padding: 9px 14px; background: #282835; color: #fff; }
+                button:hover { background: #3d3d50; }
+                button:focus-visible, textarea:focus-visible { outline: 3px solid #b8acff; outline-offset: 3px; }
+                button:disabled { cursor: wait; opacity: .7; }
+                #copy { display: block; margin-left: auto; background: #55439e;
+                    box-shadow: 0 3px 16px #0006; }
+                #panel { width: min(420px, calc(100vw - 32px)); margin-bottom: 12px;
+                    padding: 16px; border: 1px solid #646478; border-radius: 12px;
+                    background: #1c1c27; box-shadow: 0 6px 24px #0008;
+                    max-height: calc(100vh - 110px); overflow: auto; }
+                h2 { font: 600 16px/1.4 system-ui, sans-serif; margin: 0 0 8px; }
+                p { margin: 0 0 12px; }
+                textarea { display: block; width: 100%; height: min(240px, 40vh);
+                    margin-bottom: 12px; padding: 10px; resize: vertical; max-height: 50vh;
+                    background: #11111a; color: #f6f6fa; border: 1px solid #646478;
+                    border-radius: 6px; font: 12px/1.5 monospace; }
+                .actions { display: flex; gap: 8px; justify-content: flex-end; }
+                #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+            </style>
+            <section id="panel" role="dialog" aria-labelledby="title" hidden>
+                <h2 id="title">RedditNSFW log</h2>
+                <p>Clipboard access is unavailable. Copy the selected text (Ctrl+C / ⌘C), then paste it into chat.</p>
+                <textarea id="text" aria-label="Diagnostic log" readonly spellcheck="false"></textarea>
+                <div class="actions">
+                    <button id="download" type="button">Download log</button>
+                    <button id="close" type="button">Close</button>
+                </div>
+            </section>
+            <button id="copy" type="button" title="Copy RedditNSFW diagnostics to paste into chat">Copy log</button>
+            <span id="status" role="status" aria-live="polite"></span>`;
+        const button = root.getElementById('copy');
+        const panel = root.getElementById('panel');
+        const text = root.getElementById('text');
+        const status = root.getElementById('status');
+        let feedbackTimer;
+
+        const closePanel = () => {
+            panel.hidden = true;
+            button.focus();
+        };
+        root.getElementById('close').addEventListener('click', closePanel);
+        root.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !panel.hidden) {
+                event.preventDefault();
+                closePanel();
+            }
+        });
+        root.getElementById('download').addEventListener('click', () => reporter.export());
+        button.addEventListener('click', async () => {
+            clearTimeout(feedbackTimer);
+            button.disabled = true;
+            button.textContent = 'Copying…';
+            panel.hidden = true;
+            reporter.record('reporter', 'copy-log', { page: location.href });
+            try {
+                // Call during the click to retain the browser's clipboard user activation.
+                await navigator.clipboard.writeText(reporter.format());
+                button.textContent = 'Copied!';
+                status.textContent = 'Log copied. Paste it into chat.';
+            } catch (err) {
+                reporter.record('reporter', 'copy-log-failed', { error: err?.message || String(err) });
+                text.value = reporter.format();
+                panel.hidden = false;
+                text.focus();
+                text.select();
+                button.textContent = 'Copy log';
+                status.textContent = 'Copy the selected diagnostic log manually.';
+            } finally {
+                button.disabled = false;
+            }
+            feedbackTimer = setTimeout(() => { button.textContent = 'Copy log'; }, 2200);
+        });
+        return host;
+    }
+
+    function ensureLogControl() {
+        if (!logControlHost) logControlHost = createLogControl(sharedLog);
+        if (!logControlHost.isConnected) {
+            (document.body || document.documentElement).appendChild(logControlHost);
+        }
+    }
 
     function recordDebug(event, details) {
         sharedLog.record('image-recreation', event, details);
@@ -147,8 +253,12 @@
 
     function collectPageSnapshot() {
         return {
+            version: SCRIPT_VERSION,
+            config: { ...CONFIG },
             page: location.href,
             lastUrl,
+            readyState: document.readyState,
+            viewport: { width: window.innerWidth, height: window.innerHeight, scrollY: window.scrollY },
             cachedPosts: mediaCache.size,
             matchingContainers: document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').length,
             fallbackLayers: document.querySelectorAll('.tm-unblur-media-layer').length,
@@ -164,7 +274,7 @@
     window.redditImageRecreationExportLog = exportCombinedLog;
 
     function log(...args) {
-        console.log('[Reddit External Unblur]', ...args);
+        if (CONFIG.debugConsole) console.log('[Reddit External Unblur]', ...args);
     }
 
     function getReason(el) {
@@ -221,7 +331,7 @@
                 changed = true;
             }
         } catch (err) {
-            log('Setting property failed:', err);
+            recordDebug('unblur-property-failed', { error: err?.message || String(err) });
         }
 
         if (blurContainer.hasAttribute('blurred')) {
@@ -363,7 +473,7 @@
             mediaCache.set(postPath, cached);
             return await cached;
         } catch (err) {
-            log('fetchPostData failed', err);
+            recordDebug('fetch-post-url-failed', { postHref, error: err?.message || String(err) });
             return null;
         }
     }
@@ -1721,9 +1831,11 @@
 
     function start() {
         recordDebug('script-start', {
-            version: '1.33',
-            exportFunction: 'log()'
+            version: SCRIPT_VERSION,
+            exportFunction: 'log()',
+            copyControl: 'Copy log'
         });
+        ensureLogControl();
         scan(document);
 
         if (document.body) {
@@ -1738,12 +1850,13 @@
         setInterval(() => {
             if (location.href !== lastUrl) {
                 lastUrl = location.href;
-                log('URL changed, rescanning');
+                recordDebug('url-changed', { page: lastUrl });
                 scan(document);
             }
         }, 500);
 
         setInterval(() => {
+            ensureLogControl();
             document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]').forEach(processBlurredContainer);
         }, 1500);
     }

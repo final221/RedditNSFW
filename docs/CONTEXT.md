@@ -15,12 +15,15 @@ This repo tracks Reddit/Tampermonkey userscripts for NSFW media access on curren
 
 ## Verify surface
 - `npm run agent:verify` runs doc sync, userscript checks, build/version handling, extra sync checks, and `git status -sb`.
+- Doc sync normalizes LF and CRLF input before comparing or writing, including the README generated block.
 - This repo expects to be inside a git repo before normal verify/commit use.
 
 ## Field debugging
 - `src/userscripts/reddit-image-recreation.user.js` now keeps a rolling in-memory trace for live failure diagnosis.
+- The fixed **Copy log** button at the bottom right copies the current report. Clipboard failures open a selected, read-only text area with a download option; the control is isolated in a shadow root and reattached by the integrity rescan if Reddit removes it.
 - `log()` in the browser console downloads `reddit-nsfw-log.txt` from the current page.
+- `getSharedLogReporter().format()` supplies both copying and downloading. Snapshots include the script version, active config, viewport/scroll position, and media-layer counts; the report also states how many older events were discarded. `debugConsole` gates console output, while the bounded in-memory trace stays active.
 - The exported log is intended for copy-paste back into the repo discussion when a Reddit surface fails in the browser. It combines direct-unblur state with reconstruction events, including unstable cases where the fallback may build first and then yield back to native Reddit media later, no-op cases where fallback is skipped before fetch/build, and image cases where the recreated `<img>` exists in DOM but still does not visibly render or only becomes visible after the fallback seeds layout into a collapsed media host while honoring Reddit''s own height cap.
 
 ## Recovery regression checks
-`build/check-media-recovery.js` runs isolated checks against the real userscript helpers for request retries and caching, query-bearing video URLs, native image visibility/readiness, native playback ownership, obsolete fallback cancellation, and image preload cleanup. `npm test` runs these alongside syntax/header checks; it does not validate live Reddit rendering.
+`build/check-media-recovery.js` runs isolated checks against the real userscript helpers for request retries and caching, query-bearing video URLs, native image visibility/readiness, native playback ownership, obsolete fallback cancellation, and image preload cleanup. `build/check-log-controls.js` checks the shared report formatter, legacy downloads, clipboard success/failure, manual selection, navigation snapshots, control reattachment, and trace limits. `npm test` runs these alongside syntax/header checks; it does not validate live Reddit rendering.

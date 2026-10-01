@@ -16,13 +16,16 @@ const SCRIPT_CATALOG = {
       hosts: ["https://www.reddit.com/*", "https://sh.reddit.com/*"],
       debug: [
         "Console prefix: [Reddit External Unblur]",
+        "Fixed bottom-right Copy log button copies diagnostics while scrolling; clipboard failures open a selected text area with Download log",
+        "Copied and downloaded reports share version/config/page snapshots, session metadata, retained/discarded event counts, and the bounded event trace",
+        "debugConsole gates console output (disabled by default); the in-memory trace remains active and resets on reload",
         "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
         "window.redditNSFWExportLog() and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, fallback layout seeding details and height caps, fallback image render-state snapshots, native handoff events, and lost-layer recovery events",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "debugLogMaxEntries", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "debugLogMaxEntries", "debugConsole", "URL change polling interval"]
     }
   }
 };
