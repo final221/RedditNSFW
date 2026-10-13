@@ -10,7 +10,7 @@ assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage, canContinueFallback,
     scheduleFallbackBuild, clearPendingFallback, getSharedLogReporter,
-    extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, CONFIG };
+    extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, viewportFallback, CONFIG };
 buildOverlay = (...args) => globalThis.buildAttempts.push(args);
 })();`;
 class Element {
@@ -31,6 +31,8 @@ class Element {
     }
     remove() { this.parentElement = null; this.isConnected = false; }
     getAttribute(key) { return this.attrs[key] || null; }
+    hasAttribute(key) { return Object.hasOwn(this.attrs, key); }
+    removeAttribute(key) { delete this.attrs[key]; }
     getBoundingClientRect() { return this.box || { width: 320, height: 240 }; }
     getRootNode() { return {}; }
     querySelectorAll(selector) { return this.children.filter(node => node.matches(selector)); }
@@ -50,7 +52,7 @@ class Image {
 const context = {
     window: { devicePixelRatio: 1 }, Element, Image, Document: class {}, URL, buildAttempts: [],
     HTMLMediaElement: { HAVE_CURRENT_DATA: 2 },
-    location: { href: 'https://www.reddit.com/', origin: 'https://www.reddit.com' },
+    location: { href: 'https://www.reddit.com/', origin: 'https://www.reddit.com', pathname: '/' },
     console: { log() {} },
     document: { createElement() { return { set innerHTML(value) { this.value = value.replace(/&amp;/g, '&'); } }; } },
     getComputedStyle: node => node.style,
@@ -130,6 +132,7 @@ function checkFallbackScheduling() {
 
 async function run() {
     checkFallbackScheduling();
+    checkViewportFallback();
     const originalSrc = 'https://i.redd.it/large.jpg';
     const resolution = width => ({
         url: `https://preview.redd.it/large.jpg?width=${width}&format=pjpg&auto=webp&s=signed-${width}#image`,
@@ -267,6 +270,15 @@ async function run() {
         assert.equal(calls, 2, failure + ' retries once, then caches success');
     }
     let completeFetch;
+    context.fetch = async () => ({ ok: false, status: 403, redirected: true,
+        url: 'https://www.reddit.com/denied?solution=PRIVATE_SOLUTION',
+        headers: { get: name => name === 'content-type' ? 'text/html' : '60' } });
+    assert.equal(await subject.fetchPostData('/comments/denied/'), null);
+    const denial = JSON.parse(subject.getSharedLogReporter().entries.filter(entry => entry.event === 'fetch-post-data-failed').at(-1).details);
+    assert.equal(denial.request.status, 403);
+    assert.equal(denial.request.contentType, 'text/html');
+    assert.equal(denial.request.retryAfter, '60');
+    assert.ok(!denial.request.responseUrl.includes('PRIVATE_'), 'response diagnostics redact challenge parameters');
     let concurrentCalls = 0;
     context.fetch = () => { concurrentCalls++; return new Promise(resolve => { completeFetch = resolve; }); };
     const first = subject.fetchPostData('/comments/shared/');
@@ -345,6 +357,56 @@ async function run() {
     lastImage.listeners.get('error')();
     assert.equal(await error, null);
     assert.equal(timers.size, 0);
-    console.log('[check-media-recovery] Passed stable fallback deadlines, display-sized image selection/recovery, request retries/cache, video URLs, native playback ownership, stale attempts, and image preload checks.');
+    console.log('[check-media-recovery] Passed viewport deferral/retirement, HTTP response metadata, stable fallback deadlines, display-sized image selection/recovery, request retries/cache, video URLs, native playback ownership, stale attempts, and image preload checks.');
+}
+
+function checkViewportFallback() {
+    const observed = new Set();
+    let onIntersection;
+    context.IntersectionObserver = class {
+        constructor(callback, options) { onIntersection = callback; assert.equal(options.rootMargin, '1000px 0px'); }
+        observe(host) { observed.add(host); }
+        unobserve(host) { observed.delete(host); }
+    };
+    context.window.innerHeight = 720;
+    const host = new Element();
+    host.box = { width: 700, height: 540, top: 5000, bottom: 5540 };
+    const blur = new Element('shreddit-blurred-container');
+    blur.attrs.reason = 'nsfw';
+    blur.parentElement = host;
+    host.children = [blur];
+    context.location.href = 'https://www.reddit.com/comments/viewport/';
+    context.location.pathname = '/comments/viewport/';
+    const count = context.buildAttempts.length;
+    subject.scheduleFallbackBuild(blur, null, context.location.href);
+    assert.equal(timers.size, 0, 'far-offscreen native loading cannot start the fallback grace period');
+    assert.ok(observed.has(host));
+    assert.equal(subject.viewportFallback.size(), 1);
+    host.box.top = 1200; host.box.bottom = 1740;
+    onIntersection([{ target: host, isIntersecting: true }]);
+    assert.equal(observed.size, 0, 'entry releases the deferred host');
+    const deadline = clockMs + 1200;
+    advanceTo(deadline - 1);
+    assert.equal(context.buildAttempts.length, count);
+    advanceTo(deadline);
+    assert.equal(context.buildAttempts.length, count + 1, 'viewport entry gets the full native grace period');
+    subject.scheduleFallbackBuild(blur, null, context.location.href);
+    host.box.top = -5000; host.box.bottom = -4460;
+    advanceTo(clockMs + 1200);
+    assert.equal(context.buildAttempts.length, count + 1, 'scrolling away before the deadline defers reconstruction again');
+    assert.ok(observed.has(host));
+    host.isConnected = false;
+    subject.viewportFallback.prune();
+    assert.equal(observed.size, 0, 'detached hosts release observer references');
+    assert.equal(subject.viewportFallback.size(), 0);
+    onIntersection([{ target: host, isIntersecting: true }]);
+    assert.equal(timers.size, 0, 'late callbacks cannot revive detached work');
+    host.isConnected = true;
+    subject.scheduleFallbackBuild(blur, null, context.location.href);
+    host.children.push(new Element('video'));
+    subject.scheduleFallbackBuild(blur, null, context.location.href);
+    assert.equal(observed.size, 0, 'native playback ownership releases deferred work');
+    delete context.IntersectionObserver;
+    context.location.href = 'https://www.reddit.com/'; context.location.pathname = '/';
 }
 run().catch(err => { console.error(err); process.exitCode = 1; });

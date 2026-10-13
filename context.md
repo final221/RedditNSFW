@@ -4,7 +4,7 @@
 - A request to discuss, assess, or suggest optional work is not approval to implement it. Explain tradeoffs and work only on the selected step; do not add speculative changes just to finish a plan.
 - For multi-step code reviews, the user prefers a clear ordered plan with progress reported as each step is completed.
 - The user shares browser diagnostics by pasting them into this chat. Prefer concise reports that preserve available evidence, with directly copyable text and controls accessible while scrolling; downloading a file is supplementary.
-- The user judges feed responsiveness by whether images are ready during continuous scrolling; eventual successful loading alone does not meet the browsing goal.
+- The user judges feed responsiveness by whether images are ready during continuous scrolling; eventual successful loading alone does not meet the browsing goal. Stable image sizing and unobtrusive loading/retry transitions are part of that goal.
 - Performance and reliability investigations should proactively add or refine bounded, low-cost logging or counters to verify changes and distinguish plausible causes when existing evidence leaves important questions unanswered. Do this during the current investigation; do not stop at stating uncertainty or wait for a separate request. The user explicitly authorizes these diagnostic improvements. Keep normal browsing quiet and cheap. When reporting an unresolved cause, explain which diagnostic gap was addressed and what the next capture can establish.
 - The user authorizes the assistant to maintain durable context when lasting repository knowledge or preferences change. Routine maintenance does not require another permission request.
 

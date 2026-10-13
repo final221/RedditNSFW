@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.39
+// @version      1.40
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,9 +11,10 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.39';
+    const SCRIPT_VERSION = '1.40';
     const CONFIG = {
         fallbackDelayMs: 1200,
+        fallbackViewportMarginPx: 1000,
         preferNativeReveal: false,
         useClickFallback: false,
         videoRecoveryTimeoutMs: 1800,
@@ -30,6 +31,7 @@
     let lastUrl = location.href;
     const mediaCache = new Map();
     const fallbackTimers = new WeakMap();
+    const viewportFallback = createViewportFallbackGate();
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, last: null };
     let measuringScan = false;
     const performanceDiagnostics = createPerformanceDiagnostics();
@@ -433,6 +435,7 @@
                 blurredProperty: typeof blur.blurred === 'undefined' ? null : blur.blurred,
                 blockers: collectFallbackBlockers(host, blur),
                 nativeOwner: describeNativeOwner(findNativeMediaOwner(host, blur), true),
+                nativeImages: collectNativeImageDiagnostics(host),
                 fallbackVideo: describeNativeOwner({ node: host?.querySelector('.tm-unblur-media-layer video'), reason: 'fallback-video' }, true)
             }))
         };
@@ -448,6 +451,7 @@
             readyState: document.readyState,
             viewport: { width: window.innerWidth, height: window.innerHeight, scrollY: window.scrollY },
             cachedPosts: mediaCache.size,
+            deferredFallbacks: viewportFallback.size(),
             matchingContainers: containers.length,
             fallbackLayers: document.querySelectorAll('.tm-unblur-media-layer').length,
             overlays: document.querySelectorAll('.tm-nsfw-overlay').length,
@@ -648,9 +652,17 @@
                 return mediaCache.get(postPath);
             }
 
+            const jsonUrl = `${postPath}/.json?raw_json=1`;
+            const fetchStartedAt = nowMs();
+            const request = { url: new URL(jsonUrl, location.origin).href };
             const promise = (async () => {
-                const jsonUrl = `${postPath}/.json?raw_json=1`;
                 const res = await fetch(jsonUrl, { credentials: 'same-origin' });
+                Object.assign(request, {
+                    status: res.status ?? null, responseUrl: res.url || null,
+                    redirected: res.redirected ?? null,
+                    contentType: res.headers?.get('content-type') || null,
+                    retryAfter: res.headers?.get('retry-after') || null
+                });
                 if (!res.ok) throw new Error(`Post JSON HTTP ${res.status}`);
 
                 const json = await res.json();
@@ -662,7 +674,8 @@
                 return post;
             }, (err) => {
                 mediaCache.delete(postPath);
-                recordDebug('fetch-post-data-failed', { postPath, error: err?.message || String(err) });
+                recordDebug('fetch-post-data-failed', { postPath, error: err?.message || String(err),
+                    request: { ...request, elapsedMs: Math.round(nowMs() - fetchStartedAt) } });
                 return null;
             });
             mediaCache.set(postPath, cached);
@@ -1304,6 +1317,64 @@
         return state;
     }
 
+    function collectNativeImageDiagnostics(host) {
+        const images = host instanceof Element ? [...host.querySelectorAll('img')]
+            .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
+        return {
+            total: images.length, sampleLimit: 3,
+            images: images.slice(0, 3).map(node => {
+                const box = node.getBoundingClientRect();
+                return {
+                    src: node.currentSrc || node.getAttribute('src') || null,
+                    complete: node.complete ?? null,
+                    naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
+                    loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
+                    renderedBox: { width: Math.round(box.width), height: Math.round(box.height) }
+                };
+            })
+        };
+    }
+
+    function recordNativeImageState(host, normalizedPostUrl) {
+        if (!viewportFallback.near(host)) return;
+        const box = host.getBoundingClientRect();
+        recordDebug('native-image-state', {
+            normalizedPostUrl,
+            hostBox: { width: Math.round(box.width), height: Math.round(box.height) },
+            fallbackSizingApplied: host.dataset.tmFallbackMinHeightApplied === '1',
+            nativeImages: collectNativeImageDiagnostics(host)
+        }, host);
+    }
+
+    function handleNativeImageEvent(event) {
+        const image = event.target;
+        if (!(image instanceof Element) || !image.matches('img') || image.closest('.tm-unblur-media-layer')) return;
+        const host = image.closest('[slot="post-media-container"]') || image.closest('shreddit-blurred-container')?.parentElement;
+        const blur = host?.querySelector('shreddit-blurred-container[reason="nsfw"]');
+        if (!host?.isConnected || !image.isConnected || !blur?.isConnected || getOverlayHost(blur) !== host) return;
+        const normalizedPostUrl = resolvePostHref(blur, host);
+        recordDebug(`native-image-${event.type}`, {
+            normalizedPostUrl, src: image.currentSrc || image.getAttribute('src') || null,
+            viewport: snapshotHostViewport(host)
+        });
+        if (event.type === 'load' && hasNativeResolvedMedia(host, blur)) {
+            clearPendingFallback(host);
+            viewportFallback.forget(host);
+            yieldToNativeMedia(host, blur);
+        }
+        recordNativeImageState(host, normalizedPostUrl);
+        if (event.type === 'load') {
+            const expectedSrc = image.currentSrc || image.getAttribute('src');
+            setTimeout(() => {
+                if (host.isConnected && image.isConnected && blur.isConnected && getOverlayHost(blur) === host &&
+                    resolvePostHref(blur, host) === normalizedPostUrl &&
+                    (image.currentSrc || image.getAttribute('src')) === expectedSrc) {
+                    recordNativeImageState(host, normalizedPostUrl);
+                }
+            }, 250);
+        }
+    }
+
     function canContinueFallback(host, blurContainer, overlay) {
         // Async JSON/preloads can finish after native media arrives, navigation,
         // or Reddit replaces the host. An obsolete attempt must never insert media.
@@ -1407,6 +1478,57 @@
             clearTimeout(pending.timer);
             fallbackTimers.delete(host);
         }
+    }
+
+    function createViewportFallbackGate() {
+        // Own deferred hosts and release observer references on entry or retirement.
+        const deferred = new Map();
+        let observer;
+        const forget = (host) => {
+            observer?.unobserve(host);
+            deferred.delete(host);
+        };
+        const near = (host) => {
+            const box = host.getBoundingClientRect();
+            // Preserve collapsed-host recovery and environments without viewport geometry.
+            if (!Number.isFinite(box.top) || !Number.isFinite(box.bottom) || !Number.isFinite(window.innerHeight)) return true;
+            const margin = CONFIG.fallbackViewportMarginPx;
+            return box.bottom >= -margin && box.top <= window.innerHeight + margin;
+        };
+        return {
+            near,
+            forget,
+            size: () => deferred.size,
+            defer(host, blurContainer, normalizedPostUrl) {
+                if (near(host)) { forget(host); return false; }
+                recordDebug('fallback-deferred', { normalizedPostUrl, reason: 'outside-preload-range', marginPx: CONFIG.fallbackViewportMarginPx }, host);
+                if (!observer && typeof IntersectionObserver === 'function') {
+                    observer = new IntersectionObserver((entries) => measureScan('viewport', () => {
+                        for (const entry of entries) {
+                            if (!entry.isIntersecting) continue;
+                            const blur = deferred.get(entry.target);
+                            if (!blur) continue;
+                            forget(entry.target);
+                            if (entry.target.isConnected && blur.isConnected && getOverlayHost(blur) === entry.target) {
+                                recordDebug('fallback-viewport-entered', {
+                                    normalizedPostUrl: resolvePostHref(blur, entry.target),
+                                    viewport: snapshotHostViewport(entry.target)
+                                });
+                                processBlurredContainer(blur);
+                            }
+                        }
+                    }), { rootMargin: `${CONFIG.fallbackViewportMarginPx}px 0px`, threshold: 0 });
+                }
+                deferred.set(host, blurContainer);
+                observer?.observe(host);
+                return true;
+            },
+            prune() {
+                for (const [host, blur] of deferred) {
+                    if (!host.isConnected || !blur.isConnected || getOverlayHost(blur) !== host) forget(host);
+                }
+            }
+        };
     }
 
     function measureFallbackLayout(host, blurContainer, sourceImg, preloadedImg) {
@@ -2121,6 +2243,7 @@
         }
 
         const normalizedPostUrl = normalizePostHref(postHref) || postHref || null;
+        recordNativeImageState(host, normalizedPostUrl);
         const nativeOwner = findNativeMediaOwner(host, el);
         const initialBlockers = collectFallbackBlockers(host, el, nativeOwner);
         const nativeState = describeNativeOwner(nativeOwner);
@@ -2136,7 +2259,13 @@
 
         if (initialBlockers.length) {
             clearPendingFallback(host);
+            viewportFallback.forget(host);
             yieldToNativeMedia(host, el);
+            return;
+        }
+
+        if (viewportFallback.defer(host, el, normalizedPostUrl)) {
+            clearPendingFallback(host);
             return;
         }
 
@@ -2165,6 +2294,7 @@
                 yieldToNativeMedia(host, el);
                 return;
             }
+            if (viewportFallback.defer(host, el, normalizedPostUrl)) return;
             buildOverlay(el, el.querySelector('img') || img, postHref);
         }, CONFIG.fallbackDelayMs);
 
@@ -2250,6 +2380,8 @@
         ensureLogControl();
         scan(document, 'startup');
         performanceDiagnostics.start();
+        document.addEventListener('load', handleNativeImageEvent, true);
+        document.addEventListener('error', handleNativeImageEvent, true);
 
         if (document.body) {
             mo.observe(document.body, {
@@ -2270,6 +2402,7 @@
 
         setInterval(() => {
             performanceDiagnostics.sampleTimer();
+            viewportFallback.prune();
             ensureLogControl();
             scan(document, 'integrity');
         }, INTEGRITY_INTERVAL_MS);

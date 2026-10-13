@@ -10,7 +10,8 @@ assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
-    attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics };
+    attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
+    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -36,7 +37,8 @@ class Element {
     addEventListener(event, listener) { this.listeners.set(event, listener); }
     getAttribute(key) { return this.attrs[key] || null; }
     hasAttribute(key) { return Object.hasOwn(this.attrs, key); }
-    matches(selector) { return selector.split(',').some(part => part.trim() === this.tagName.toLowerCase()); }
+    matches(selector) { return selector.split(',').some(part => part.trim() === this.tagName.toLowerCase() ||
+        (part.trim() === 'shreddit-blurred-container[reason="nsfw"]' && this.tagName === 'SHREDDIT-BLURRED-CONTAINER' && this.attrs.reason === 'nsfw')); }
     closest(selector) {
         if (selector === '.tm-unblur-media-layer') return this.customLayer || null;
         if (selector === '[slot="revealed"]') return this.revealedSlot || null;
@@ -285,7 +287,7 @@ async function checkDiagnostics(reporter) {
     video.currentTime = 30;
     subject.scheduleFallbackBuild(blur, null, '/comments/abc/');
     assert.equal(reporter.entries.length, afterFirstSchedule);
-    assert.equal(reporter.suppressedEntries, suppressedBeforeProgress + 1, 'currentTime changes do not create repeated status events');
+    assert.equal(reporter.suppressedEntries, suppressedBeforeProgress + 2, 'currentTime changes do not create repeated scheduling or layout events');
     video.error = { code: 3, message: 'native decode error' };
     subject.scheduleFallbackBuild(blur, null, '/comments/abc/');
     const nativeError = reporter.entries.find(entry => entry.event === 'native-media-error');
@@ -424,6 +426,7 @@ async function run() {
     assert.ok(copied.includes(context.location.href), 'copy takes a fresh snapshot after client-side navigation');
     assert.equal(panel.hidden, true, 'successful retry closes the manual fallback');
     await checkDiagnostics(reporter);
+    checkNativeLoading(reporter);
     checkPerformanceDiagnostics(reporter);
     await button.emit('click');
     assert.ok(!copied.includes('PRIVATE_'), 'clipboard writes use the sanitized report');
@@ -435,7 +438,48 @@ async function run() {
     assert.ok(reporter.droppedEntries > 0);
     assert.ok(reporter.droppedImportantEntries > 0, 'important-only history remains bounded and reports losses');
     assert.ok(reporter.format().includes('events discarded: ' + reporter.droppedEntries));
-    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, compact event details, scan timing, foreground timer/frame gaps, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+}
+
+function checkNativeLoading(reporter) {
+    const host = new Element(); host.isConnected = true;
+    host.dataset.tmOverlayBuilt = '1';
+    const overlay = new Element(); overlay.remove = () => { host.children = host.children.filter(child => child !== overlay); };
+    const blur = new Element('shreddit-blurred-container'); blur.attrs.reason = 'nsfw';
+    const image = new Element('img');
+    image.attrs.src = 'https://preview.redd.it/native.jpg?width=1080&auto=webp&s=signed';
+    image.box = { width: 700, height: 900 };
+    image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
+    host.appendChild(blur); host.appendChild(image); host.appendChild(overlay);
+    const queryAll = host.querySelectorAll.bind(host);
+    host.querySelectorAll = selector => selector.startsWith(':scope > .tm-nsfw-overlay') ? [overlay] : queryAll(selector);
+    subject.recordNativeImageState(host, context.location.href);
+    const before = reporter.entries.filter(entry => entry.event === 'native-image-state').length;
+    subject.recordNativeImageState(host, context.location.href);
+    assert.equal(reporter.entries.filter(entry => entry.event === 'native-image-state').length, before,
+        'unchanged native image/layout samples are suppressed');
+    Object.assign(image, { complete: true, naturalWidth: 750, naturalHeight: 1105 });
+    subject.handleNativeImageEvent({ type: 'load', target: image });
+    assert.equal(host.dataset.tmOverlayBuilt, undefined, 'native load removes the obsolete retry overlay immediately');
+    assert.ok(!host.children.includes(overlay));
+    const loaded = reporter.entries.filter(entry => entry.event === 'native-image-load').at(-1);
+    assert.ok(loaded.details.includes('native.jpg'));
+    image.box.height = 540;
+    for (const [id, callback] of [...timers]) { timers.delete(id); callback(); }
+    const state = JSON.parse(reporter.entries.filter(entry => entry.event === 'native-image-state').at(-1).details);
+    assert.equal(state.nativeImages.images[0].renderedBox.height, 540, 'post-load sizing changes are retained');
+    const signedSrc = image.attrs.src;
+    subject.handleNativeImageEvent({ type: 'error', target: image });
+    assert.ok(reporter.entries.some(entry => entry.event === 'native-image-error' && !entry.routine));
+    assert.equal(image.attrs.src, signedSrc, 'diagnostics never rewrite native signed image sources');
+    const beforeFallback = reporter.entries.length;
+    image.closest = selector => selector === '.tm-unblur-media-layer' ? overlay : host;
+    subject.handleNativeImageEvent({ type: 'load', target: image });
+    assert.equal(reporter.entries.length, beforeFallback, 'fallback images do not enter native loading diagnostics');
+    const boundedHost = new Element();
+    for (let i=0;i<10;i++) boundedHost.appendChild(new Element('img'));
+    assert.equal(subject.collectNativeImageDiagnostics(boundedHost).images.length, 3);
+    assert.equal(subject.collectNativeImageDiagnostics(boundedHost).total, 10);
 }
 
 function checkPerformanceDiagnostics(reporter) {
