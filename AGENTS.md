@@ -29,13 +29,13 @@
 - `build/agent-commit.js`
 - `build/build.js`
 - `build/sync-docs.js`
-- `docs/CONTEXT.md`
+- `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/SCRIPTS.md`
 
 ## Durable context
 - `context.md` contains compact, concise, lossless durable knowledge about the repository and user preferences.
-- Read [context.md](context.md) at the start of each run for durable user preferences and cross-cutting knowledge. [docs/CONTEXT.md](docs/CONTEXT.md) remains the repository navigation and debugging map.
+- Read [context.md](context.md) at the start of each run for durable user preferences and cross-cutting knowledge. Use [README.md](README.md) for repository navigation, [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for implementation flow, and [docs/DEBUGGING.md](docs/DEBUGGING.md) for debug hooks and checks.
 - Review `context.md` before finishing every run. Edit only its unprotected sections when durable knowledge changed, following its own inclusion and exclusion rules; preserve the protected instructions verbatim.
 
 ## Agent quick map
@@ -80,17 +80,18 @@
 - Runtime constraints: target Tampermonkey in the browser on `https://www.reddit.com/*` and `https://sh.reddit.com/*`
 - Logging / observability contract: debug output must be intentionally gated and documented
 - File size / refactor threshold: if a maintained userscript becomes difficult to reason about, split helpers before adding more behavior
-- Public hooks / entrypoint changes must update: `README.md`, `docs/CONTEXT.md`, `docs/ARCHITECTURE.md`, `docs/DEBUGGING.md`, `docs/TUNING.md`
+- Public hooks / entrypoint changes must update: `README.md`, `docs/ARCHITECTURE.md`, `docs/DEBUGGING.md`, `docs/TUNING.md`
 - Keep docs explicitly in sync with the changed surface:
 - Architecture / flow / subsystem interaction docs -> `docs/ARCHITECTURE.md`
-- Navigation / hot paths / debug hooks / AI orientation docs -> `docs/CONTEXT.md`
+- Repository navigation docs -> `README.md`
+- Hot paths / implementation flow docs -> `docs/ARCHITECTURE.md`
 - Debugging / operations docs -> `docs/DEBUGGING.md`
 - Tuning / thresholds / knobs docs -> `docs/TUNING.md`
 - Generated script reference docs -> `docs/SCRIPTS.md`
 
 ## Quick refs
 - [context.md](context.md)
-- `docs/CONTEXT.md`
+- [README.md](README.md)
 - `docs/ARCHITECTURE.md`
 - `docs/DEBUGGING.md`
 - `docs/TUNING.md`

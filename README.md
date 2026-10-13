@@ -12,11 +12,16 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 <!-- SCRIPT_SUMMARY_END -->
 
 ## Repo Layout
+
 - `src/userscripts/` contains the maintained userscript entry files.
 - `src/script-catalog.js` is the single metadata source for script inventory and doc generation.
 - `build/` contains the repo-local verify, build, commit, and doc-sync entrypoints.
 - `docs/` holds the project docs, including generated script reference output.
-- Root `.txt` files contain preserved failure examples for debugging.
+- `Image failure.txt` and `Video Failure.txt` contain preserved HTML failure examples for debugging.
+- [context.md](context.md) holds compact durable repository knowledge and user preferences.
+- [AGENTS.md](AGENTS.md) owns agent workflow and editing rules.
+
+See [Architecture](docs/ARCHITECTURE.md) for implementation flow, [Debugging](docs/DEBUGGING.md) for diagnostics and check coverage, [Tuning](docs/TUNING.md) for settings, and [Scripts](docs/SCRIPTS.md) for the generated script reference.
 
 ## Field Logs
 - Click the fixed **Copy log** button at the bottom right of Reddit. It stays visible while scrolling and copies diagnostics ready to paste into chat.
@@ -27,10 +32,13 @@ The maintained source lives under `src/userscripts/`. The unused standalone Auto
 - Event details use compact JSON with every field retained; snapshots stay indented for reading. Foreground timer lateness and scroll frame gaps help distinguish page stalls from synchronous userscript work. See [Debugging](docs/DEBUGGING.md) for measurement limits.
 
 ## Workflow
+
 - Run `BUMP=patch|minor|major|none npm run agent:verify`.
 - Run `COMMIT_MSG="..." npm run agent:commit` after verify succeeds.
 - Use `BUMP=none` for local-only verification when you do not want a version or changelog bump.
 - Keep docs in sync with code changes in the same change set.
+
+Run these commands from the repository's Git checkout. `agent:verify` runs doc sync, userscript checks, build/version handling, extra sync checks, and `git status -sb`. See [AGENTS.md](AGENTS.md) for the full workflow and release policy.
 
 ## Hosting
 - GitHub account: `final221`

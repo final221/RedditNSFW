@@ -46,6 +46,16 @@
 - Check whether the post JSON still exposes the needed media URLs.
 - Inspect the copied trace before changing logic. Enable `CONFIG.debugConsole` in the userscript only if live console output is needed.
 
+## Repository checks
+
+`npm test` runs the following checks against the maintained userscript:
+
+- `build/check-userscripts.js`: JavaScript syntax and Tampermonkey header validation.
+- `build/check-media-recovery.js`: isolated checks using the real helpers for stable fallback deadlines under repeated scans, host reuse and detached-host cancellation, display-sized image selection at different pixel densities, height caps, preview signatures and original-source recovery, request retries and caching, query-bearing video URLs, native image visibility/readiness, native playback ownership, obsolete fallback cancellation, and image preload cleanup.
+- `build/check-log-controls.js`: shared report formatting, legacy downloads, clipboard success/failure, manual selection, navigation snapshots, control reattachment, trace limits/retention priority, 49-post repeat suppression, compact event field preservation, nested scan timing, foreground timer/frame gaps and hidden-tab exclusion, native-player ownership/error details, viewport sampling, and URL redaction across clipboard/manual/download paths.
+
+These checks do not validate live Reddit rendering. Use the [README workflow](../README.md#workflow) for combined doc sync, tests, and build verification, and capture a live report when the browser surface fails.
+
 ## Interpreting hiccups and native blockers
 - `pagePerformance.frames` records foreground frame-callback gap samples during scroll bursts (including the first wait from scroll to callback); `pagePerformance.timer` records lateness of the existing 1500ms integrity interval. Each reports sample/slow counts and maximum delay, with `frameSupported` indicating browser support. These are scheduling measurements rather than displayed-frame or CPU measurements.
 - `scroll-frame-gap` records a gap of at least `debugFrameGapMs` (100ms), with events limited to one per 1500ms while all slow samples contribute to the counters. `page-timer-lag` records interval lateness of at least `debugTimerLagMs` (100ms). Both include page, scroll position, and last scan context. A large gap with small scan durations points to work outside those measured batches, but does not identify Reddit code, decoding, browser extensions, or GPU activity as the cause.
