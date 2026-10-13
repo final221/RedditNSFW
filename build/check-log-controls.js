@@ -11,7 +11,7 @@ const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
-    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics };
+    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -332,6 +332,17 @@ async function checkDiagnostics(reporter) {
 
 async function run() {
     const reporter = subject.sharedLog;
+    const repeated={src:'https://preview.redd.it/repeated.jpg?width=1080&s=SIGNED#fragment',nested:{complete:true,naturalWidth:750},literal:'@detail1'};
+    for(let i=0;i<12;i++) subject.recordDebug('repeat-format-test',repeated);
+    reporter.record('@detail_1','reference-like-name',{literal:'preserve this source name'});
+    const repeatReport=reporter.format();
+    assert.ok(repeatReport.includes('Repeated event details (substitute tokens to recover JSON):'));
+    const restoredReport=restoreReferences(repeatReport);
+    assert.ok(restoredReport.includes('@detail_1: reference-like-name'),'reference-like source/event names remain literal');
+    const restoredLines=restoredReport.split('\n');
+    const events=restoredLines.flatMap((line,i)=>line.includes('image-recreation: repeat-format-test')?[i]:[]);
+    assert.equal(events.length,12,'payload references retain every event and timestamp');
+    for(const index of events) assert.deepEqual(JSON.parse(restoredLines[index+1]),repeated,'nested payloads and literal reference-like strings round-trip');
     subject.recordDebug('test-media-failure', { error: 'Post JSON HTTP 503', source: 'https://v.redd.it/test/DASH_720.mp4' });
     const formatted = reporter.format();
     const eventLines = formatted.split('\n');
@@ -426,6 +437,7 @@ async function run() {
     assert.ok(copied.includes(context.location.href), 'copy takes a fresh snapshot after client-side navigation');
     assert.equal(panel.hidden, true, 'successful retry closes the manual fallback');
     await checkDiagnostics(reporter);
+    checkCompactUrls();
     checkNativeLoading(reporter);
     checkPerformanceDiagnostics(reporter);
     await button.emit('click');
@@ -438,7 +450,25 @@ async function run() {
     assert.ok(reporter.droppedEntries > 0);
     assert.ok(reporter.droppedImportantEntries > 0, 'important-only history remains bounded and reports losses');
     assert.ok(reporter.format().includes('events discarded: ' + reporter.droppedEntries));
-    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, lossless report references, coalesced native callbacks, export-only request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+}
+
+function restoreReferences(report) {
+    const lines=report.split('\n'), dictionaries=new Map(), kept=[];
+    for(let i=0;i<lines.length;i++) {
+        if (/^(URL dictionary|Repeated event details) \(substitute tokens/.test(lines[i])) {
+            while(++i<lines.length && lines[i]) {
+                const split=lines[i].indexOf(' = ');
+                dictionaries.set(lines[i].slice(0,split),lines[i].slice(split+3));
+            }
+        } else kept.push(lines[i]);
+    }
+    let restored=kept.join('\n');
+    for(const kind of ['@detail','@url']) {
+        const tokens=[...dictionaries.keys()].filter(token=>token.startsWith(kind)).sort((a,b)=>b.length-a.length);
+        if(tokens.length) restored=restored.replace(new RegExp(tokens.join('|'),'g'),token=>dictionaries.get(token));
+    }
+    return restored;
 }
 
 function checkNativeLoading(reporter) {
@@ -452,7 +482,11 @@ function checkNativeLoading(reporter) {
     image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
     host.appendChild(blur); host.appendChild(image); host.appendChild(overlay);
     const queryAll = host.querySelectorAll.bind(host);
-    host.querySelectorAll = selector => selector.startsWith(':scope > .tm-nsfw-overlay') ? [overlay] : queryAll(selector);
+    let nativeImageReads = 0;
+    host.querySelectorAll = selector => {
+        if (selector === 'img') nativeImageReads++;
+        return selector.startsWith(':scope > .tm-nsfw-overlay') ? [overlay] : queryAll(selector);
+    };
     subject.recordNativeImageState(host, context.location.href);
     const before = reporter.entries.filter(entry => entry.event === 'native-image-state').length;
     subject.recordNativeImageState(host, context.location.href);
@@ -464,6 +498,13 @@ function checkNativeLoading(reporter) {
     assert.ok(!host.children.includes(overlay));
     const loaded = reporter.entries.filter(entry => entry.event === 'native-image-load').at(-1);
     assert.ok(loaded.details.includes('native.jpg'));
+    const timerCount = timers.size;
+    const readsBeforeBurst = nativeImageReads;
+    for (let i=0;i<20;i++) subject.handleNativeImageEvent({ type: 'load', target: image });
+    assert.equal(nativeImageReads, readsBeforeBurst, 'load bursts avoid rescanning all host images');
+    assert.equal(timers.size, timerCount, 'duplicate native loads share one follow-up per host');
+    assert.ok(subject.collectPageSnapshot().scanTiming.byReason['native-image-event'].batches >= 21,
+        'native event work contributes to measured script cost');
     image.box.height = 540;
     for (const [id, callback] of [...timers]) { timers.delete(id); callback(); }
     const state = JSON.parse(reporter.entries.filter(entry => entry.event === 'native-image-state').at(-1).details);
@@ -480,6 +521,37 @@ function checkNativeLoading(reporter) {
     for (let i=0;i<10;i++) boundedHost.appendChild(new Element('img'));
     assert.equal(subject.collectNativeImageDiagnostics(boundedHost).images.length, 3);
     assert.equal(subject.collectNativeImageDiagnostics(boundedHost).total, 10);
+    image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
+    let resourceReads = 0;
+    context.performance.getEntriesByName = () => {
+        resourceReads++;
+        return [{ startTime: 200, duration: 150, responseEnd: 350, requestStart: 0, responseStart: 0,
+            transferSize: 0, decodedBodySize: 0, initiatorType: 'img' }];
+    };
+    subject.collectNativeImageDiagnostics(host);
+    assert.equal(resourceReads, 0, 'resource timing is queried only on export');
+    const timed = subject.collectNativeImageDiagnostics(host, true).images[0];
+    assert.equal(timed.resourceTiming.startTimeMs, 200);
+    assert.equal(timed.resourceTiming.durationMs, 150);
+    assert.equal(timed.resourceTiming.requestStartMs, 0, 'restricted/cached zero fields are preserved without inventing latency');
+    delete context.performance.getEntriesByName;
+}
+
+function checkCompactUrls() {
+    const url='https://preview.redd.it/image.jpg?width=1080&auto=webp&s=SIGNED#image';
+    const original='RedditNSFW Combined Debug Log\nPage: '+url+'\n\nSnapshots\n'+JSON.stringify({src:url, literal:'@url1'})+'\n\nEvents\n'+url+'\n';
+    const compact=subject.compactLogUrls(original);
+    assert.ok(compact.length < original.length, 'URL dictionary includes its overhead and still saves space');
+    const marker='URL dictionary (substitute tokens to recover full URLs):\n';
+    const start=compact.indexOf(marker), end=compact.indexOf('\n\n',start);
+    const dictionary=new Map(compact.slice(start+marker.length,end).split('\n').map(line=>{
+        const split=line.indexOf(' = ');return [line.slice(0,split),line.slice(split+3)];
+    }));
+    let restored=compact.slice(0,start)+compact.slice(end+2);
+    const tokens=[...dictionary.keys()].sort((a,b)=>b.length-a.length);
+    restored=restored.replace(new RegExp(tokens.join('|'),'g'),token=>dictionary.get(token));
+    assert.equal(restored,original,'full URLs, signatures, fragments, literal token text, and all other bytes round-trip');
+    assert.equal(subject.compactLogUrls('one '+url),'one '+url,'unique URLs remain literal');
 }
 
 function checkPerformanceDiagnostics(reporter) {

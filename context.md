@@ -10,5 +10,5 @@
 
 ## Cross-cutting repository knowledge
 
-- A diagnostic capture establishes what was observed during its coverage. Missing errors or successful intermediate operations do not establish that unobserved intermittent problems are absent or that the user's media experience is healthy. Separate observations, plausible explanations, and unmeasured behavior when interpreting evidence.
+- A diagnostic capture establishes what was observed during its coverage. Missing errors or successful intermediate operations do not establish that unobserved intermittent problems are absent or that the user's media experience is healthy. Separate observations, plausible explanations, and unmeasured behavior when interpreting evidence. Performance attribution must account for all relevant script-owned callbacks, rather than treating one subsystem's timings as the script's total cost.
 - Media cost depends on source dimensions as well as displayed size. A small on-screen image can still require a large transfer and decoded allocation; consider both when investigating responsiveness or evaluating media-source choices.

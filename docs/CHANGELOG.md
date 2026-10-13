@@ -1,4 +1,19 @@
 # Changelog
+## 1.5.1 - 2026-10-13T23:16:08.816Z
+Previous: 1.5.0
+Commit: 2600f55
+Changes:
+- Defer distant fallback attempts and yield promptly to native images
+- Consolidate repository context into existing documentation
+- Compact diagnostic events and measure foreground scrolling stalls
+- Improve late-image and delayed native-handoff diagnostics
+- Clarify proactive diagnostics preference
+- Support Reddit CDN previews and diagnose picture handoffs
+- Reduce fallback image loading delays while scrolling
+- Connect durable context to the agent workflow
+- Improve log retention and targeted media diagnostics
+- Add fixed Copy log control and clipboard fallback
+
 ## 1.5.0 - 2026-10-13T22:56:39.151Z
 Previous: 1.4.2
 Commit: c6991c3

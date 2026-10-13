@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.40
+// @version      1.41
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.40';
+    const SCRIPT_VERSION = '1.41';
     const CONFIG = {
         fallbackDelayMs: 1200,
         fallbackViewportMarginPx: 1000,
@@ -31,8 +31,10 @@
     let lastUrl = location.href;
     const mediaCache = new Map();
     const fallbackTimers = new WeakMap();
+    const nativeImageFollowups = new WeakMap();
+    const nativeImageObservations = new WeakMap();
     const viewportFallback = createViewportFallbackGate();
-    const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, last: null };
+    const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, byReason: {}, last: null };
     let measuringScan = false;
     const performanceDiagnostics = createPerformanceDiagnostics();
 
@@ -52,6 +54,29 @@
                 return raw;
             }
         });
+    }
+
+    function compactLogUrls(report) {
+        // Export-only, lossless references; stored events and runtime URLs stay literal.
+        const pattern = /https?:\/\/[^\s"'<>\\]+/gi;
+        const counts = new Map();
+        for (const [url] of report.matchAll(pattern)) counts.set(url, (counts.get(url) || 0) + 1);
+        let prefix = '@url';
+        while (report.includes(prefix)) prefix += '_';
+        const aliases = new Map();
+        for (const [url, count] of counts) {
+            const token = prefix + (aliases.size + 1);
+            if (count > 1 && count * (url.length - token.length) > url.length + token.length + 4) aliases.set(url, token);
+        }
+        if (!aliases.size) return report;
+        const dictionary = 'URL dictionary (substitute tokens to recover full URLs):\n' +
+            [...aliases].map(([url, token]) => `${token} = ${url}`).join('\n');
+        const compact = report.replace(pattern, url => aliases.get(url) || url);
+        const divider = compact.indexOf('\n\nSnapshots\n');
+        const result = divider >= 0
+            ? compact.slice(0, divider) + '\n\n' + dictionary + compact.slice(divider)
+            : compact + '\n\n' + dictionary;
+        return result.length < report.length ? result : report;
     }
 
     function describeElement(el) {
@@ -111,12 +136,15 @@
                 this.snapshots[source] = snapshotFn;
             },
             record(source, event, details, routine = false) {
+                return this.append(source, event, this.stringify(details), routine);
+            },
+            append(source, event, serialized, routine) {
                 const timestamp = new Date().toISOString();
                 this.entries.push({
                     timestamp,
                     source,
                     event,
-                    details: this.stringify(details),
+                    details: serialized,
                     routine
                 });
                 if (this.entries.length > this.maxEntries) {
@@ -141,7 +169,7 @@
                     return false;
                 }
                 states.set(key, state);
-                return this.record(source, event, details, !/(failed|error|timeout|missing)/.test(event));
+                return this.append(source, event, state, !/(failed|error|timeout|missing)/.test(event));
             },
             format() {
                 const lines = [
@@ -166,16 +194,37 @@
                     lines.push(`## ${source}`, this.stringify(snapshot, true));
                 }
 
+                const payloadCounts = new Map();
+                for (const { details } of this.entries) {
+                    if (details.startsWith('{') && !details.includes('\n')) payloadCounts.set(details, (payloadCounts.get(details) || 0) + 1);
+                }
+                let prefix = '@detail';
+                const literalText = lines.join('\n') + this.entries.map(entry =>
+                    [entry.timestamp, entry.source, entry.event, entry.details].join('\n')).join('\n');
+                while (literalText.includes(prefix)) prefix += '_';
+                const payloadAliases = new Map();
+                let payloadSavings = 0;
+                for (const [payload, count] of payloadCounts) {
+                    const token = prefix + (payloadAliases.size + 1);
+                    const savings = count * (payload.length - token.length) - payload.length - token.length - 4;
+                    if (savings > 0) { payloadAliases.set(payload, token); payloadSavings += savings; }
+                }
+                const payloadHeading = 'Repeated event details (substitute tokens to recover JSON):';
+                if (payloadSavings <= payloadHeading.length + 4) payloadAliases.clear();
+                if (payloadAliases.size) {
+                    lines.push('', payloadHeading,
+                        ...[...payloadAliases].map(([payload, token]) => `${token} = ${payload}`));
+                }
                 lines.push('', 'Events');
                 for (const entry of this.entries) {
                     lines.push(`[${entry.timestamp}] ${entry.source}: ${entry.event}`);
                     if (entry.details) {
-                        lines.push(entry.details);
+                        lines.push(payloadAliases.get(entry.details) || entry.details);
                     }
                     lines.push('');
                 }
 
-                return sanitizeLogText(lines.join('\n'));
+                return compactLogUrls(sanitizeLogText(lines.join('\n')));
             },
             export() {
                 this.record('reporter', 'export-log', {
@@ -326,6 +375,10 @@
             scanMetrics.batches += 1;
             scanMetrics.totalMs += durationMs;
             scanMetrics.maxMs = Math.max(scanMetrics.maxMs, durationMs);
+            const reasonMetrics = scanMetrics.byReason[reason] ||= { batches: 0, totalMs: 0, maxMs: 0 };
+            reasonMetrics.batches += 1;
+            reasonMetrics.totalMs = Math.round((reasonMetrics.totalMs + durationMs) * 100) / 100;
+            reasonMetrics.maxMs = Math.max(reasonMetrics.maxMs, durationMs);
             scanMetrics.last = {
                 reason,
                 durationMs,
@@ -435,7 +488,7 @@
                 blurredProperty: typeof blur.blurred === 'undefined' ? null : blur.blurred,
                 blockers: collectFallbackBlockers(host, blur),
                 nativeOwner: describeNativeOwner(findNativeMediaOwner(host, blur), true),
-                nativeImages: collectNativeImageDiagnostics(host),
+                nativeImages: collectNativeImageDiagnostics(host, true),
                 fallbackVideo: describeNativeOwner({ node: host?.querySelector('.tm-unblur-media-layer video'), reason: 'fallback-video' }, true)
             }))
         };
@@ -449,6 +502,7 @@
             page: location.href,
             lastUrl,
             readyState: document.readyState,
+            timingClock: { timeOriginMs: typeof performance === 'undefined' ? null : performance.timeOrigin ?? null, nowMs: Math.round(nowMs()) },
             viewport: { width: window.innerWidth, height: window.innerHeight, scrollY: window.scrollY },
             cachedPosts: mediaCache.size,
             deferredFallbacks: viewportFallback.size(),
@@ -1317,19 +1371,32 @@
         return state;
     }
 
-    function collectNativeImageDiagnostics(host) {
+    function collectNativeImageDiagnostics(host, includeResourceTiming = false) {
         const images = host instanceof Element ? [...host.querySelectorAll('img')]
             .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
         return {
             total: images.length, sampleLimit: 3,
             images: images.slice(0, 3).map(node => {
                 const box = node.getBoundingClientRect();
+                const src = node.currentSrc || node.getAttribute('src') || null;
+                if (nativeImageObservations.get(node)?.src !== src) {
+                    nativeImageObservations.set(node, { src, firstSeenMs: Math.round(nowMs()) });
+                }
+                const resource = includeResourceTiming && src && typeof performance !== 'undefined' &&
+                    typeof performance.getEntriesByName === 'function'
+                    ? performance.getEntriesByName(src, 'resource').at(-1) : null;
                 return {
-                    src: node.currentSrc || node.getAttribute('src') || null,
+                    src, firstSeenMs: nativeImageObservations.get(node)?.firstSeenMs ?? null,
                     complete: node.complete ?? null,
                     naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
                     loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
-                    renderedBox: { width: Math.round(box.width), height: Math.round(box.height) }
+                    renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
+                    resourceTiming: includeResourceTiming ? (resource ? {
+                        startTimeMs: resource.startTime, durationMs: resource.duration, responseEndMs: resource.responseEnd,
+                        requestStartMs: resource.requestStart, responseStartMs: resource.responseStart,
+                        transferSize: resource.transferSize, decodedBodySize: resource.decodedBodySize,
+                        initiatorType: resource.initiatorType
+                    } : null) : undefined
                 };
             })
         };
@@ -1347,31 +1414,49 @@
     }
 
     function handleNativeImageEvent(event) {
+        return measureScan('native-image-event', () => processNativeImageEvent(event));
+    }
+
+    function processNativeImageEvent(event) {
         const image = event.target;
         if (!(image instanceof Element) || !image.matches('img') || image.closest('.tm-unblur-media-layer')) return;
         const host = image.closest('[slot="post-media-container"]') || image.closest('shreddit-blurred-container')?.parentElement;
         const blur = host?.querySelector('shreddit-blurred-container[reason="nsfw"]');
         if (!host?.isConnected || !image.isConnected || !blur?.isConnected || getOverlayHost(blur) !== host) return;
         const normalizedPostUrl = resolvePostHref(blur, host);
+        const imageBox = image.getBoundingClientRect();
         recordDebug(`native-image-${event.type}`, {
             normalizedPostUrl, src: image.currentSrc || image.getAttribute('src') || null,
+            imageState: {
+                complete: image.complete ?? null, naturalWidth: image.naturalWidth ?? null, naturalHeight: image.naturalHeight ?? null,
+                renderedBox: { width: Math.round(imageBox.width), height: Math.round(imageBox.height) }
+            },
             viewport: snapshotHostViewport(host)
         });
-        if (event.type === 'load' && hasNativeResolvedMedia(host, blur)) {
+        const hasFallbackWork = fallbackTimers.has(host) || viewportFallback.has(host) ||
+            host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1';
+        if (event.type === 'load' && hasFallbackWork && hasNativeResolvedMedia(host, blur)) {
             clearPendingFallback(host);
             viewportFallback.forget(host);
             yieldToNativeMedia(host, blur);
         }
-        recordNativeImageState(host, normalizedPostUrl);
+        if (event.type !== 'load') recordNativeImageState(host, normalizedPostUrl);
         if (event.type === 'load') {
+            const pending = nativeImageFollowups.get(host);
+            if (pending) clearTimeout(pending);
+            nativeImageFollowups.delete(host);
+            if (!viewportFallback.near(host)) return;
             const expectedSrc = image.currentSrc || image.getAttribute('src');
-            setTimeout(() => {
+            const timer = setTimeout(() => measureScan('native-image-followup', () => {
+                if (nativeImageFollowups.get(host) !== timer) return;
+                nativeImageFollowups.delete(host);
                 if (host.isConnected && image.isConnected && blur.isConnected && getOverlayHost(blur) === host &&
                     resolvePostHref(blur, host) === normalizedPostUrl &&
                     (image.currentSrc || image.getAttribute('src')) === expectedSrc) {
                     recordNativeImageState(host, normalizedPostUrl);
                 }
-            }, 250);
+            }), 250);
+            nativeImageFollowups.set(host, timer);
         }
     }
 
@@ -1499,6 +1584,7 @@
             near,
             forget,
             size: () => deferred.size,
+            has: host => deferred.has(host),
             defer(host, blurContainer, normalizedPostUrl) {
                 if (near(host)) { forget(host); return false; }
                 recordDebug('fallback-deferred', { normalizedPostUrl, reason: 'outside-preload-range', marginPx: CONFIG.fallbackViewportMarginPx }, host);
