@@ -17,21 +17,21 @@ const SCRIPT_CATALOG = {
       debug: [
         "Console prefix: [Reddit External Unblur]",
         "Fixed bottom-right Copy log button copies diagnostics while scrolling; clipboard failures open a selected text area with Download log",
-        "Copied and downloaded reports share version/config/page snapshots, session metadata, suppressed/discarded event counts, and the bounded event trace",
-        "Unchanged per-element scan/process/scheduling decisions are suppressed; routine state entries cannot evict fetch/recovery/failure history",
-        "Diagnostics include synchronous scan timings and slow-batch events, native ownership reasons and player errors, and up to 12 viewport-prioritized media snapshots with playback time and visibility",
+        "Copied and downloaded reports share version/config/page snapshots, session metadata, retained/repeated observation counts, and complete session history",
+        "Every recorded decision, repeat, error, and timestamp is retained; identical serialized payloads share storage without event eviction",
+        "Diagnostics include synchronous scan timings and slow-batch events, native ownership reasons and player errors, and all matching media snapshots, prioritized by viewport with playback time and visibility",
         "Foreground timer lateness and scroll frame gaps complement per-reason script timing, including native callbacks; lossless report dictionaries compact repeated event details and URLs, and snapshots remain indented",
         "Known Reddit/Cloudflare challenge parameters are stripped from stored/exported log URLs; media query/hash diagnostics are preserved",
         "debugConsole gates console output (disabled by default); the in-memory trace remains active and resets on reload",
         "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
         "window.redditNSFWExportLog() and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, fallback layout seeding details and height caps, fallback image render-state snapshots, native handoff events, and lost-layer recovery events",
-        "Image diagnostics include selected/original sources, candidate host/rejection counts, target/source dimensions, actual/intended fallback wait, and fetch/preload/build elapsed times; identical render states are suppressed, detached images are marked, native handoff height/ownership changes are recorded immediately and over two frames plus 250ms, and timer/source/load viewport snapshots relate waits to scrolling",
-        "Viewport eligibility traces, native image state/events, export-only browser Resource Timing, and JSON failure response metadata diagnose late pictures; nearby load bursts share one follow-up per host",
+        "Image diagnostics include selected/original sources, candidate host/rejection counts, target/source dimensions, actual/intended fallback wait, and fetch/preload/build elapsed times; identical render observations retain their phases and timestamps, detached images are marked, native handoff height/ownership changes are recorded immediately and over two frames plus 250ms, and timer/source/load viewport snapshots relate waits to scrolling",
+        "Viewport eligibility traces, native image state/events, all available matching browser Resource Timing entries on export, and JSON failure response metadata diagnose late pictures; nearby load bursts share one follow-up per host",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "fallbackViewportMarginPx", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugLogMaxEntries", "debugSlowScanMs", "debugFrameGapMs", "debugTimerLagMs", "debugConsole", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "fallbackViewportMarginPx", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugSlowScanMs", "debugFrameGapMs", "debugTimerLagMs", "debugConsole", "URL change polling interval"]
     }
   }
 };

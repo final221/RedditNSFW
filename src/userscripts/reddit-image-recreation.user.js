@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.41
+// @version      1.42
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.41';
+    const SCRIPT_VERSION = '1.42';
     const CONFIG = {
         fallbackDelayMs: 1200,
         fallbackViewportMarginPx: 1000,
@@ -20,7 +20,6 @@
         videoRecoveryTimeoutMs: 1800,
         imagePreloadTimeoutMs: 8000,
         useSizedImagePreviews: true,
-        debugLogMaxEntries: 400,
         debugSlowScanMs: 50,
         debugFrameGapMs: 100,
         debugTimerLagMs: 100,
@@ -90,7 +89,7 @@
             hasBlurredAttribute: el.hasAttribute('blurred'),
             blurredProperty: typeof el.blurred === 'undefined' ? null : el.blurred,
             ariaLabel: el.getAttribute('aria-label'),
-            text: (el.textContent || '').trim().slice(0, 160)
+            text: (el.textContent || '').trim()
         };
     }
 
@@ -112,11 +111,9 @@
 
         const reporter = {
             entries: [],
-            maxEntries: CONFIG.debugLogMaxEntries * 2,
+            payloads: new Map(),
             startedAt: new Date().toISOString(),
-            droppedEntries: 0,
-            droppedImportantEntries: 0,
-            suppressedEntries: 0,
+            repeatedEntries: 0,
             lastStates: new WeakMap(),
             snapshots: {},
             stringify(details, pretty = false) {
@@ -135,25 +132,19 @@
             registerSource(source, snapshotFn) {
                 this.snapshots[source] = snapshotFn;
             },
-            record(source, event, details, routine = false) {
-                return this.append(source, event, this.stringify(details), routine);
+            record(source, event, details) {
+                return this.append(source, event, this.stringify(details));
             },
-            append(source, event, serialized, routine) {
+            append(source, event, serialized) {
+                // Share identical payload storage while retaining every observation.
+                if (!this.payloads.has(serialized)) this.payloads.set(serialized, serialized);
                 const timestamp = new Date().toISOString();
                 this.entries.push({
                     timestamp,
                     source,
                     event,
-                    details: serialized,
-                    routine
+                    details: this.payloads.get(serialized)
                 });
-                if (this.entries.length > this.maxEntries) {
-                    // Routine state/timing entries cannot evict recovery or failure history.
-                    const routineIndex = this.entries.findIndex((entry) => entry.routine);
-                    const [dropped] = this.entries.splice(routineIndex < 0 ? 0 : routineIndex, 1);
-                    this.droppedEntries += 1;
-                    if (!dropped.routine) this.droppedImportantEntries += 1;
-                }
                 return true;
             },
             recordState(source, event, details, scope) {
@@ -164,12 +155,12 @@
                 }
                 const key = source + ':' + event;
                 const state = this.stringify(details);
-                if (states.get(key) === state) {
-                    this.suppressedEntries += 1;
-                    return false;
-                }
+                const changed = states.get(key) !== state;
+                if (!changed) this.repeatedEntries += 1;
                 states.set(key, state);
-                return this.append(source, event, state, !/(failed|error|timeout|missing)/.test(event));
+                this.append(source, event, state);
+                // Keep change-triggered error reporting and console output quiet.
+                return changed;
             },
             format() {
                 const lines = [
@@ -178,8 +169,9 @@
                     `Session started: ${this.startedAt}`,
                     `Page: ${sanitizeLogText(location.href)}`,
                     `User agent: ${navigator.userAgent}`,
-                    `Events retained: ${this.entries.length}/${this.maxEntries}; events discarded: ${this.droppedEntries} (important: ${this.droppedImportantEntries})`,
-                    `Unchanged status entries suppressed: ${this.suppressedEntries}`,
+                    `Events retained: ${this.entries.length}; retention: complete session`,
+                    `Repeated status observations: ${this.repeatedEntries} (all retained)`,
+                    'Event timestamps: millisecond offsets from Session started; add the offset to recover UTC time.',
                     '',
                     'Snapshots'
                 ];
@@ -216,8 +208,11 @@
                         ...[...payloadAliases].map(([payload, token]) => `${token} = ${payload}`));
                 }
                 lines.push('', 'Events');
+                const sessionTime = Date.parse(this.startedAt);
                 for (const entry of this.entries) {
-                    lines.push(`[${entry.timestamp}] ${entry.source}: ${entry.event}`);
+                    const offset = Date.parse(entry.timestamp) - sessionTime;
+                    const timestamp = Number.isFinite(offset) ? `${offset >= 0 ? '+' : ''}${offset}ms` : entry.timestamp;
+                    lines.push(`[${timestamp}] ${entry.source}: ${entry.event}`);
                     if (entry.details) {
                         lines.push(payloadAliases.get(entry.details) || entry.details);
                     }
@@ -399,7 +394,6 @@
         let previousTick = null;
         let previousFrame = null;
         let lastScroll = -Infinity;
-        let lastFrameEvent = -Infinity;
         let framePending = false;
         let started = false;
         const frameSupported = () => typeof requestAnimationFrame === 'function';
@@ -418,10 +412,7 @@
             frames.maxGapMs = Math.max(frames.maxGapMs, gapMs);
             if (gapMs >= CONFIG.debugFrameGapMs) {
                 frames.slowSamples += 1;
-                if (current - lastFrameEvent >= INTEGRITY_INTERVAL_MS) {
-                    lastFrameEvent = current;
-                    recordDebug('scroll-frame-gap', { gapMs, ...context() });
-                }
+                recordDebug('scroll-frame-gap', { gapMs, ...context() });
             }
             if (current - lastScroll < 250) {
                 previousFrame = current;
@@ -471,6 +462,7 @@
     }
 
     function collectMediaDiagnostics(containers) {
+        const resourceCache = new Map();
         // Read render boxes only on export, and prioritize the posts near the viewport.
         const posts = [...containers].map((blur) => {
             const host = getOverlayHost(blur);
@@ -480,15 +472,14 @@
         posts.sort((a, b) => Number(b.inViewport) - Number(a.inViewport));
         return {
             totalContainers: posts.length,
-            sampleLimit: 12,
-            posts: posts.slice(0, 12).map(({ blur, host, inViewport }) => ({
+            posts: posts.map(({ blur, host, inViewport }) => ({
                 normalizedPostUrl: normalizePostHref(resolvePostHref(blur, host)),
                 inViewport,
                 hasBlurredAttribute: blur.hasAttribute('blurred'),
                 blurredProperty: typeof blur.blurred === 'undefined' ? null : blur.blurred,
                 blockers: collectFallbackBlockers(host, blur),
                 nativeOwner: describeNativeOwner(findNativeMediaOwner(host, blur), true),
-                nativeImages: collectNativeImageDiagnostics(host, true),
+                nativeImages: collectNativeImageDiagnostics(host, true, resourceCache),
                 fallbackVideo: describeNativeOwner({ node: host?.querySelector('.tm-unblur-media-layer video'), reason: 'fallback-video' }, true)
             }))
         };
@@ -1371,32 +1362,34 @@
         return state;
     }
 
-    function collectNativeImageDiagnostics(host, includeResourceTiming = false) {
+    function collectNativeImageDiagnostics(host, includeResourceTiming = false, resourceCache = new Map()) {
         const images = host instanceof Element ? [...host.querySelectorAll('img')]
             .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
         return {
-            total: images.length, sampleLimit: 3,
-            images: images.slice(0, 3).map(node => {
+            total: images.length,
+            images: images.map(node => {
                 const box = node.getBoundingClientRect();
                 const src = node.currentSrc || node.getAttribute('src') || null;
                 if (nativeImageObservations.get(node)?.src !== src) {
                     nativeImageObservations.set(node, { src, firstSeenMs: Math.round(nowMs()) });
                 }
-                const resource = includeResourceTiming && src && typeof performance !== 'undefined' &&
-                    typeof performance.getEntriesByName === 'function'
-                    ? performance.getEntriesByName(src, 'resource').at(-1) : null;
+                if (includeResourceTiming && !resourceCache.has(src)) {
+                    resourceCache.set(src, src && typeof performance !== 'undefined' &&
+                        typeof performance.getEntriesByName === 'function'
+                        ? performance.getEntriesByName(src, 'resource') : null);
+                }
                 return {
                     src, firstSeenMs: nativeImageObservations.get(node)?.firstSeenMs ?? null,
                     complete: node.complete ?? null,
                     naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
                     loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
                     renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
-                    resourceTiming: includeResourceTiming ? (resource ? {
+                    resourceTimings: includeResourceTiming ? (resourceCache.get(src)?.map(resource => ({
                         startTimeMs: resource.startTime, durationMs: resource.duration, responseEndMs: resource.responseEnd,
                         requestStartMs: resource.requestStart, responseStartMs: resource.responseStart,
                         transferSize: resource.transferSize, decodedBodySize: resource.decodedBodySize,
                         initiatorType: resource.initiatorType
-                    } : null) : undefined
+                    })) ?? null) : undefined
                 };
             })
         };
@@ -1794,8 +1787,7 @@
             });
             const fingerprint = JSON.stringify(state);
             if (phase !== 'error' && fingerprint === lastState) {
-                sharedLog.suppressedEntries += 1;
-                return;
+                sharedLog.repeatedEntries += 1;
             }
             lastState = fingerprint;
             recordDebug(eventName, { phase, ...state });

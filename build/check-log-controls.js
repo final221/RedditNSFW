@@ -119,11 +119,11 @@ async function checkDiagnostics(reporter) {
     image.box = { width: 360, height: 540 };
     subject.attachImageRenderDebug(image, 'render-check');
     const sampleTimers = [...timers.entries()].slice(-3);
-    const suppressedBeforeImage = reporter.suppressedEntries;
+    const repeatedBeforeImage = reporter.repeatedEntries;
     for (const [id, fn] of sampleTimers) { timers.delete(id); fn(); }
-    assert.equal(reporter.entries.filter(entry => entry.event === 'render-check').length, 1,
-        'identical healthy image snapshots retain one state instead of three phases');
-    assert.equal(reporter.suppressedEntries, suppressedBeforeImage + 2);
+    assert.equal(reporter.entries.filter(entry => entry.event === 'render-check').length, 3,
+        'identical image observations retain all three timestamps');
+    assert.equal(reporter.repeatedEntries, repeatedBeforeImage + 2);
     image.box = { width: 0, height: 0 };
     image.isConnected = false;
     await image.emit('load');
@@ -133,7 +133,7 @@ async function checkDiagnostics(reporter) {
     const beforeErrors = reporter.entries.length;
     await image.emit('error');
     await image.emit('error');
-    assert.equal(reporter.entries.length, beforeErrors + 2, 'error notifications remain protected even with identical state');
+    assert.equal(reporter.entries.length, beforeErrors + 2, 'all error notifications remain even with identical state');
 
     const handoffHost = new Element();
     handoffHost.isConnected = true;
@@ -186,7 +186,7 @@ async function checkDiagnostics(reporter) {
     frames.shift()();
     clockMs = 250;
     finishFollowup();
-    assert.equal(followupCount(), countBefore + 1, 'one bounded event records all followup samples');
+    assert.equal(followupCount(), countBefore + 1, 'one event retains all observed followup samples');
     let followup = readFollowup();
     assert.deepEqual(followup.checks.map(check => check.phase), ['frame-1', 'frame-2', 'after-250ms']);
     assert.equal(followup.checks[0].sameTarget, true);
@@ -231,7 +231,8 @@ async function checkDiagnostics(reporter) {
     assert.equal(subject.snapshotHostViewport(null), null);
 
     const before = reporter.entries.length;
-    const suppressedBefore = reporter.suppressedEntries;
+    const payloadsBefore = reporter.payloads.size;
+    const repeatedBefore = reporter.repeatedEntries;
     const scopes = Array.from({ length: 49 }, () => new Element());
     for (let pass = 0; pass < 60; pass++) {
         scopes.forEach((scope, i) => {
@@ -239,19 +240,21 @@ async function checkDiagnostics(reporter) {
             subject.recordDebug('schedule-fallback', { post: i, blockers: ['native-resolved'] }, scope);
         });
     }
-    assert.equal(reporter.entries.length - before, 98, '49 unchanged posts produce one pair of state entries each');
-    assert.equal(reporter.suppressedEntries - suppressedBefore, 49 * 2 * 59);
+    assert.equal(reporter.entries.length - before, 49 * 2 * 60, 'all repeated post observations are retained');
+    assert.equal(reporter.payloads.size - payloadsBefore, 98, 'repeat payloads share storage without dropping observations');
+    assert.equal(reporter.repeatedEntries - repeatedBefore, 49 * 2 * 59);
     assert.equal(subject.recordDebug('schedule-fallback', { post: 0, blockers: [] }, scopes[0]), true, 'state changes are retained');
     assert.equal(subject.recordDebug('schedule-fallback', { post: 0, blockers: [] }, scopes[0]), false);
     subject.recordDebug('fallback-build-failed', { post: 0, error: 'keep this failure' });
     subject.recordDebug('fallback-yielded-to-native', { post: 0 });
-    for (let i = 0; i < reporter.maxEntries * 2; i++) {
+    const beforeFlood = reporter.entries.length;
+    for (let i = 0; i < 1600; i++) {
         subject.recordDebug('schedule-fallback', { state: i }, scopes[0]);
     }
-    assert.equal(reporter.entries.length, reporter.maxEntries);
+    assert.equal(reporter.entries.length, beforeFlood + 1600);
     assert.ok(reporter.entries.some(entry => entry.event === 'fallback-build-failed'));
     assert.ok(reporter.entries.some(entry => entry.event === 'fallback-yielded-to-native'));
-    assert.equal(reporter.droppedImportantEntries, 0, 'routine floods cannot evict failures or recovery events');
+    assert.ok(!('maxEntries' in reporter), 'the reporter has no retention cap');
 
     assert.equal(subject.measureScan('fast', () => { clockMs += 7; return 'result'; }), 'result');
     subject.measureScan('outer', () => subject.measureScan('nested', () => { clockMs += 90; }));
@@ -283,15 +286,15 @@ async function checkDiagnostics(reporter) {
     assert.equal(subject.describeNativeOwner(subject.findNativeMediaOwner(host, blur), true).currentTime, 9.88);
     subject.scheduleFallbackBuild(blur, null, '/comments/abc/');
     const afterFirstSchedule = reporter.entries.length;
-    const suppressedBeforeProgress = reporter.suppressedEntries;
+    const repeatedBeforeProgress = reporter.repeatedEntries;
     video.currentTime = 30;
     subject.scheduleFallbackBuild(blur, null, '/comments/abc/');
-    assert.equal(reporter.entries.length, afterFirstSchedule);
-    assert.equal(reporter.suppressedEntries, suppressedBeforeProgress + 2, 'currentTime changes do not create repeated scheduling or layout events');
+    assert.equal(reporter.entries.length, afterFirstSchedule + 2);
+    assert.equal(reporter.repeatedEntries, repeatedBeforeProgress + 2, 'repeat observations are counted and retained without playback-time churn');
     video.error = { code: 3, message: 'native decode error' };
     subject.scheduleFallbackBuild(blur, null, '/comments/abc/');
     const nativeError = reporter.entries.find(entry => entry.event === 'native-media-error');
-    assert.ok(nativeError && !nativeError.routine, 'native player errors receive protected event retention');
+    assert.ok(nativeError, 'native player errors are retained');
     assert.ok(nativeError.details.includes('native decode error'));
     assert.equal(subject.hasNativeResolvedMedia(host, blur), true, 'error diagnostics do not replace native playback');
     video.customLayer = new Element();
@@ -312,7 +315,7 @@ async function checkDiagnostics(reporter) {
     });
     const media = subject.collectMediaDiagnostics(samples);
     assert.equal(media.totalContainers, 20);
-    assert.equal(media.posts.length, 12, 'copy snapshots cap diagnostic DOM work and report size');
+    assert.equal(media.posts.length, 20, 'exports include every matching post');
     assert.equal(media.posts[0].inViewport, true, 'visible posts are sampled before old feed entries');
     assert.equal(media.posts[0].nativeOwner.reason, 'native-iframe-present');
 
@@ -334,6 +337,8 @@ async function run() {
     const reporter = subject.sharedLog;
     const repeated={src:'https://preview.redd.it/repeated.jpg?width=1080&s=SIGNED#fragment',nested:{complete:true,naturalWidth:750},literal:'@detail1'};
     for(let i=0;i<12;i++) subject.recordDebug('repeat-format-test',repeated);
+    reporter.entries[0].timestamp = new Date(Date.parse(reporter.startedAt) + 123).toISOString();
+    reporter.entries[1].timestamp = new Date(Date.parse(reporter.startedAt) - 10).toISOString();
     reporter.record('@detail_1','reference-like-name',{literal:'preserve this source name'});
     const repeatReport=reporter.format();
     assert.ok(repeatReport.includes('Repeated event details (substitute tokens to recover JSON):'));
@@ -342,7 +347,12 @@ async function run() {
     const restoredLines=restoredReport.split('\n');
     const events=restoredLines.flatMap((line,i)=>line.includes('image-recreation: repeat-format-test')?[i]:[]);
     assert.equal(events.length,12,'payload references retain every event and timestamp');
-    for(const index of events) assert.deepEqual(JSON.parse(restoredLines[index+1]),repeated,'nested payloads and literal reference-like strings round-trip');
+    for(const [position,index] of events.entries()) {
+        assert.deepEqual(JSON.parse(restoredLines[index+1]),repeated,'nested payloads and literal reference-like strings round-trip');
+        const offset=Number(restoredLines[index].match(/^\[([+-]?\d+)ms\]/)[1]);
+        assert.equal(new Date(Date.parse(reporter.startedAt)+offset).toISOString(), reporter.entries[position].timestamp,
+            'compact timestamps restore exact millisecond UTC time, including negative offsets');
+    }
     subject.recordDebug('test-media-failure', { error: 'Post JSON HTTP 503', source: 'https://v.redd.it/test/DASH_720.mp4' });
     const formatted = reporter.format();
     const eventLines = formatted.split('\n');
@@ -445,12 +455,16 @@ async function run() {
     context.navigator.clipboard.writeText = async () => { throw new Error('Clipboard permission denied'); };
     await button.emit('click');
     assert.ok(!text.value.includes('PRIVATE_'), 'manual-copy text also strips challenge tokens');
-    for (let i = 0; i < reporter.maxEntries + 2; i++) reporter.record('test', 'bounded-event', { i });
-    assert.equal(reporter.entries.length, reporter.maxEntries);
-    assert.ok(reporter.droppedEntries > 0);
-    assert.ok(reporter.droppedImportantEntries > 0, 'important-only history remains bounded and reports losses');
-    assert.ok(reporter.format().includes('events discarded: ' + reporter.droppedEntries));
-    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, lossless report references, coalesced native callbacks, export-only request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+    const beforeUncapped = reporter.entries.length;
+    for (let i = 0; i < 5000; i++) reporter.record('test', 'uncapped-event', { i });
+    assert.equal(reporter.entries.length, beforeUncapped + 5000, 'history is preserved beyond the old cap');
+    assert.deepEqual(Array.from(reporter.entries.slice(beforeUncapped),entry=>JSON.parse(entry.details).i),
+        Array.from({length:5000},(_,i)=>i), 'every payload remains in its original order');
+    const expanded = restoreReferences(reporter.format());
+    assert.equal(expanded.split('test: uncapped-event').length - 1, 5000, 'all exported events retain their timestamps');
+    assert.ok(expanded.includes('{"i":0}') && expanded.includes('{"i":4999}'));
+    assert.ok(!reporter.format().includes('events discarded'));
+    console.log('[check-log-controls] Passed copy/download controls, complete-session retention, shared repeat payloads, lossless report references, coalesced native callbacks, export-only request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, complete snapshots, and URL redaction checks.');
 }
 
 function restoreReferences(report) {
@@ -490,8 +504,8 @@ function checkNativeLoading(reporter) {
     subject.recordNativeImageState(host, context.location.href);
     const before = reporter.entries.filter(entry => entry.event === 'native-image-state').length;
     subject.recordNativeImageState(host, context.location.href);
-    assert.equal(reporter.entries.filter(entry => entry.event === 'native-image-state').length, before,
-        'unchanged native image/layout samples are suppressed');
+    assert.equal(reporter.entries.filter(entry => entry.event === 'native-image-state').length, before + 1,
+        'unchanged native image/layout observations retain timestamps');
     Object.assign(image, { complete: true, naturalWidth: 750, naturalHeight: 1105 });
     subject.handleNativeImageEvent({ type: 'load', target: image });
     assert.equal(host.dataset.tmOverlayBuilt, undefined, 'native load removes the obsolete retry overlay immediately');
@@ -511,29 +525,32 @@ function checkNativeLoading(reporter) {
     assert.equal(state.nativeImages.images[0].renderedBox.height, 540, 'post-load sizing changes are retained');
     const signedSrc = image.attrs.src;
     subject.handleNativeImageEvent({ type: 'error', target: image });
-    assert.ok(reporter.entries.some(entry => entry.event === 'native-image-error' && !entry.routine));
+    assert.ok(reporter.entries.some(entry => entry.event === 'native-image-error'));
     assert.equal(image.attrs.src, signedSrc, 'diagnostics never rewrite native signed image sources');
     const beforeFallback = reporter.entries.length;
     image.closest = selector => selector === '.tm-unblur-media-layer' ? overlay : host;
     subject.handleNativeImageEvent({ type: 'load', target: image });
     assert.equal(reporter.entries.length, beforeFallback, 'fallback images do not enter native loading diagnostics');
-    const boundedHost = new Element();
-    for (let i=0;i<10;i++) boundedHost.appendChild(new Element('img'));
-    assert.equal(subject.collectNativeImageDiagnostics(boundedHost).images.length, 3);
-    assert.equal(subject.collectNativeImageDiagnostics(boundedHost).total, 10);
+    const inventoryHost = new Element();
+    for (let i=0;i<10;i++) inventoryHost.appendChild(new Element('img'));
+    assert.equal(subject.collectNativeImageDiagnostics(inventoryHost).images.length, 10);
+    assert.equal(subject.collectNativeImageDiagnostics(inventoryHost).total, 10);
     image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
     let resourceReads = 0;
     context.performance.getEntriesByName = () => {
         resourceReads++;
         return [{ startTime: 200, duration: 150, responseEnd: 350, requestStart: 0, responseStart: 0,
-            transferSize: 0, decodedBodySize: 0, initiatorType: 'img' }];
+            transferSize: 0, decodedBodySize: 0, initiatorType: 'img' },
+            { startTime: 400, duration: 10, responseEnd: 410, initiatorType: 'img' }];
     };
     subject.collectNativeImageDiagnostics(host);
     assert.equal(resourceReads, 0, 'resource timing is queried only on export');
     const timed = subject.collectNativeImageDiagnostics(host, true).images[0];
-    assert.equal(timed.resourceTiming.startTimeMs, 200);
-    assert.equal(timed.resourceTiming.durationMs, 150);
-    assert.equal(timed.resourceTiming.requestStartMs, 0, 'restricted/cached zero fields are preserved without inventing latency');
+    assert.equal(timed.resourceTimings.length, 2, 'every matching browser timing entry is included');
+    assert.equal(timed.resourceTimings[1].startTimeMs, 400);
+    assert.equal(timed.resourceTimings[0].startTimeMs, 200);
+    assert.equal(timed.resourceTimings[0].durationMs, 150);
+    assert.equal(timed.resourceTimings[0].requestStartMs, 0, 'restricted/cached zero fields are preserved without inventing latency');
     delete context.performance.getEntriesByName;
 }
 
@@ -575,7 +592,7 @@ function checkPerformanceDiagnostics(reporter) {
     clockMs += 160;
     frames.shift()();
     assert.equal(frames.length, 0, 'frame sampling stops after the scroll burst');
-    assert.equal(reporter.entries.filter(entry => entry.event === 'scroll-frame-gap').length, 1, 'nearby gaps aggregate without flooding the trace');
+    assert.equal(reporter.entries.filter(entry => entry.event === 'scroll-frame-gap').length, 2, 'every detected slow-frame event is retained');
     clockMs = 11620;
     diagnostics.sampleTimer();
     snapshot = subject.collectPageSnapshot().pagePerformance;
