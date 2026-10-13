@@ -34,6 +34,7 @@
 - `docs/SCRIPTS.md`
 
 ## Durable context
+- `context.md` contains compact, concise, lossless durable knowledge about the repository and user preferences.
 - Read [context.md](context.md) at the start of each run for durable user preferences and cross-cutting knowledge. [docs/CONTEXT.md](docs/CONTEXT.md) remains the repository navigation and debugging map.
 - Review `context.md` before finishing every run. Edit only its unprotected sections when durable knowledge changed, following its own inclusion and exclusion rules; preserve the protected instructions verbatim.
 
@@ -48,7 +49,7 @@
 1. Make changes and update tests or checks when behavior changes.
 2. Choose bump policy, set `BUMP=patch|minor|major|none`, then run `npm run agent:verify`.
 3. Set `COMMIT_MSG="..."` and run `npm run agent:commit` if verify succeeds.
-4. Update Context.md if appropriate.
+4. Review context.md during each task. Add or change only durable knowledge. Ending without any changes requires a clear explanation why no context was added.
 
 - Preferred workflow entrypoints are `agent:verify` and `agent:commit`.
 - `BUMP=none` is the local-only verify path. Use it for exploratory setup or docs-only validation when no release metadata change is wanted.

@@ -20,6 +20,7 @@ const SCRIPT_CATALOG = {
         "Copied and downloaded reports share version/config/page snapshots, session metadata, suppressed/discarded event counts, and the bounded event trace",
         "Unchanged per-element scan/process/scheduling decisions are suppressed; routine state entries cannot evict fetch/recovery/failure history",
         "Diagnostics include synchronous scan timings and slow-batch events, native ownership reasons and player errors, and up to 12 viewport-prioritized media snapshots with playback time and visibility",
+        "Foreground timer lateness and scroll frame gaps complement scan timing with bounded counters/events, excluding hidden-tab throttling; event JSON is compact without removing fields and snapshots remain indented",
         "Known Reddit/Cloudflare challenge parameters are stripped from stored/exported log URLs; media query/hash diagnostics are preserved",
         "debugConsole gates console output (disabled by default); the in-memory trace remains active and resets on reload",
         "Console command log() downloads reddit-nsfw-log.txt with combined data from loaded RedditNSFW scripts",
@@ -29,7 +30,7 @@ const SCRIPT_CATALOG = {
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugLogMaxEntries", "debugSlowScanMs", "debugConsole", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugLogMaxEntries", "debugSlowScanMs", "debugFrameGapMs", "debugTimerLagMs", "debugConsole", "URL change polling interval"]
     }
   }
 };

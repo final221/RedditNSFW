@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.38
+// @version      1.39
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.38';
+    const SCRIPT_VERSION = '1.39';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preferNativeReveal: false,
@@ -21,14 +21,18 @@
         useSizedImagePreviews: true,
         debugLogMaxEntries: 400,
         debugSlowScanMs: 50,
+        debugFrameGapMs: 100,
+        debugTimerLagMs: 100,
         debugConsole: false
     };
     const REPORTER_KEY = '__redditNSFWLogReporter';
+    const INTEGRITY_INTERVAL_MS = 1500;
     let lastUrl = location.href;
     const mediaCache = new Map();
     const fallbackTimers = new WeakMap();
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, last: null };
     let measuringScan = false;
+    const performanceDiagnostics = createPerformanceDiagnostics();
 
     function sanitizeLogText(text) {
         return String(text).replace(/https?:\/\/[^\s"'<>\\]+/gi, (raw) => {
@@ -88,7 +92,7 @@
             suppressedEntries: 0,
             lastStates: new WeakMap(),
             snapshots: {},
-            stringify(details) {
+            stringify(details, pretty = false) {
                 if (details == null) return '';
                 if (typeof details === 'string') return sanitizeLogText(details);
 
@@ -96,7 +100,7 @@
                     return JSON.stringify(details, (key, value) => {
                         const described = describeLogValue(value);
                         return typeof described === 'string' ? sanitizeLogText(described) : described;
-                    }, 2);
+                    }, pretty ? 2 : undefined);
                 } catch (err) {
                     return sanitizeLogText(err?.message || details);
                 }
@@ -157,7 +161,7 @@
                     } catch (err) {
                         snapshot = { error: err?.message || String(err) };
                     }
-                    lines.push(`## ${source}`, this.stringify(snapshot));
+                    lines.push(`## ${source}`, this.stringify(snapshot, true));
                 }
 
                 lines.push('', 'Events');
@@ -332,6 +336,85 @@
         }
     }
 
+    function createPerformanceDiagnostics() {
+        // Observe page-wide stalls separately from measured userscript work.
+        // No DOM reads, extra interval, or idle animation-frame loop.
+        const frames = { samples: 0, slowSamples: 0, maxGapMs: 0 };
+        const timer = { samples: 0, slowSamples: 0, maxLagMs: 0 };
+        let previousTick = null;
+        let previousFrame = null;
+        let lastScroll = -Infinity;
+        let lastFrameEvent = -Infinity;
+        let framePending = false;
+        let started = false;
+        const frameSupported = () => typeof requestAnimationFrame === 'function';
+        const context = () => ({ scrollY: window.scrollY, page: location.href, lastScan: scanMetrics.last });
+        const sampleFrame = () => {
+            framePending = false;
+            if (document.visibilityState === 'hidden') return;
+            const current = nowMs();
+            // A queued frame can resume after visibility changes and a fresh scroll.
+            if (previousFrame === null) {
+                if (!Number.isFinite(lastScroll)) return;
+                previousFrame = lastScroll;
+            }
+            const gapMs = Math.round(current - previousFrame);
+            frames.samples += 1;
+            frames.maxGapMs = Math.max(frames.maxGapMs, gapMs);
+            if (gapMs >= CONFIG.debugFrameGapMs) {
+                frames.slowSamples += 1;
+                if (current - lastFrameEvent >= INTEGRITY_INTERVAL_MS) {
+                    lastFrameEvent = current;
+                    recordDebug('scroll-frame-gap', { gapMs, ...context() });
+                }
+            }
+            if (current - lastScroll < 250) {
+                previousFrame = current;
+                framePending = true;
+                requestAnimationFrame(sampleFrame);
+            } else {
+                previousFrame = null;
+            }
+        };
+        return {
+            start() {
+                if (started) return;
+                started = true;
+                previousTick = nowMs();
+                window.addEventListener('scroll', () => {
+                    if (document.visibilityState === 'hidden' || !frameSupported()) return;
+                    lastScroll = nowMs();
+                    if (!framePending) {
+                        previousFrame = lastScroll;
+                        framePending = true;
+                        requestAnimationFrame(sampleFrame);
+                    }
+                }, { passive: true });
+                document.addEventListener('visibilitychange', () => {
+                    previousTick = nowMs();
+                    previousFrame = null;
+                    lastScroll = -Infinity;
+                });
+            },
+            sampleTimer() {
+                const current = nowMs();
+                if (previousTick !== null && document.visibilityState !== 'hidden') {
+                    const lagMs = Math.max(0, Math.round(current - previousTick - INTEGRITY_INTERVAL_MS));
+                    timer.samples += 1;
+                    timer.maxLagMs = Math.max(timer.maxLagMs, lagMs);
+                    if (lagMs >= CONFIG.debugTimerLagMs) {
+                        timer.slowSamples += 1;
+                        recordDebug('page-timer-lag', { lagMs, ...context() });
+                    }
+                }
+                previousTick = current;
+            },
+            snapshot() {
+                return { started, frameSupported: frameSupported(), frames: { ...frames }, timer: { ...timer } };
+            }
+        };
+    }
+
     function collectMediaDiagnostics(containers) {
         // Read render boxes only on export, and prioritize the posts near the viewport.
         const posts = [...containers].map((blur) => {
@@ -373,6 +456,7 @@
                 totalMs: Math.round(scanMetrics.totalMs * 100) / 100,
                 averageMs: scanMetrics.batches ? Math.round(scanMetrics.totalMs / scanMetrics.batches * 100) / 100 : 0
             },
+            pagePerformance: performanceDiagnostics.snapshot(),
             mediaDiagnostics: collectMediaDiagnostics(containers)
         };
     }
@@ -2165,6 +2249,7 @@
         });
         ensureLogControl();
         scan(document, 'startup');
+        performanceDiagnostics.start();
 
         if (document.body) {
             mo.observe(document.body, {
@@ -2184,9 +2269,10 @@
         }, 500);
 
         setInterval(() => {
+            performanceDiagnostics.sampleTimer();
             ensureLogControl();
             scan(document, 'integrity');
-        }, 1500);
+        }, INTEGRITY_INTERVAL_MS);
     }
 
     if (document.readyState === 'loading') {

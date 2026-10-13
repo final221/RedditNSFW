@@ -10,7 +10,7 @@ assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
-    attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport };
+    attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -19,6 +19,7 @@ const revoked = [];
 let timerId = 0;
 let activeElement;
 let clockMs = 0;
+const pageListeners = new Map();
 
 class Element {
     constructor(tag = 'div') {
@@ -89,11 +90,13 @@ const document = {
     documentElement: new Element('html'),
     readyState: 'complete',
     visibilityState: 'visible',
+    addEventListener(event, listener) { pageListeners.set(event, listener); },
     createElement(tag) { return new Element(tag); },
     querySelectorAll() { return []; }
 };
 const context = {
-    window: { innerWidth: 1280, innerHeight: 720, scrollY: 1200 },
+    window: { innerWidth: 1280, innerHeight: 720, scrollY: 1200,
+        addEventListener(event, listener, options) { pageListeners.set(event, listener); if (event === 'scroll') assert.equal(options.passive, true); } },
     navigator: { userAgent: 'Diagnostic test browser' },
     location: { href: 'https://www.reddit.com/r/test/comments/abc/', origin: 'https://www.reddit.com', pathname: '/r/test/comments/abc/' },
     document, Element, HTMLImageElement, Document: class {}, URL: BrowserURL, Blob, Date: FixedDate,
@@ -329,6 +332,13 @@ async function run() {
     const reporter = subject.sharedLog;
     subject.recordDebug('test-media-failure', { error: 'Post JSON HTTP 503', source: 'https://v.redd.it/test/DASH_720.mp4' });
     const formatted = reporter.format();
+    const eventLines = formatted.split('\n');
+    const failureLine = eventLines.findIndex(line => line.includes('image-recreation: test-media-failure'));
+    assert.deepEqual(JSON.parse(eventLines[failureLine + 1]), {
+        error: 'Post JSON HTTP 503', source: 'https://v.redd.it/test/DASH_720.mp4'
+    }, 'compact event JSON preserves every field');
+    assert.ok(!eventLines[failureLine + 1].includes('\n'));
+    assert.ok(eventLines[failureLine + 1].includes('"error":"Post JSON HTTP 503"'), 'events use compact JSON');
     const version = source.match(/@version\s+(\S+)/)[1];
     assert.ok(formatted.includes('"version": "' + version + '"'));
     assert.ok(formatted.includes('"debugConsole": false'));
@@ -414,6 +424,7 @@ async function run() {
     assert.ok(copied.includes(context.location.href), 'copy takes a fresh snapshot after client-side navigation');
     assert.equal(panel.hidden, true, 'successful retry closes the manual fallback');
     await checkDiagnostics(reporter);
+    checkPerformanceDiagnostics(reporter);
     await button.emit('click');
     assert.ok(!copied.includes('PRIVATE_'), 'clipboard writes use the sanitized report');
     context.navigator.clipboard.writeText = async () => { throw new Error('Clipboard permission denied'); };
@@ -424,6 +435,71 @@ async function run() {
     assert.ok(reporter.droppedEntries > 0);
     assert.ok(reporter.droppedImportantEntries > 0, 'important-only history remains bounded and reports losses');
     assert.ok(reporter.format().includes('events discarded: ' + reporter.droppedEntries));
-    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, scan timing, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+    console.log('[check-log-controls] Passed copy/download controls, state deduplication, protected retention, compact event details, scan timing, foreground timer/frame gaps, native-player diagnostics, bounded snapshots, and URL redaction checks.');
+}
+
+function checkPerformanceDiagnostics(reporter) {
+    const frames = [];
+    context.requestAnimationFrame = fn => frames.push(fn);
+    const diagnostics = subject.performanceDiagnostics;
+    clockMs = 10000;
+    diagnostics.start();
+    pageListeners.get('scroll')();
+    pageListeners.get('scroll')();
+    assert.equal(frames.length, 1, 'scroll bursts share one pending frame callback');
+    clockMs += 16;
+    frames.shift()();
+    clockMs += 160;
+    frames.shift()();
+    let snapshot = subject.collectPageSnapshot().pagePerformance;
+    assert.equal(snapshot.frames.samples, 2);
+    assert.equal(snapshot.frames.slowSamples, 1);
+    assert.equal(snapshot.frames.maxGapMs, 160);
+    assert.ok(reporter.entries.some(entry => entry.event === 'scroll-frame-gap' && JSON.parse(entry.details).gapMs === 160));
+    clockMs += 160;
+    frames.shift()();
+    assert.equal(frames.length, 0, 'frame sampling stops after the scroll burst');
+    assert.equal(reporter.entries.filter(entry => entry.event === 'scroll-frame-gap').length, 1, 'nearby gaps aggregate without flooding the trace');
+    clockMs = 11620;
+    diagnostics.sampleTimer();
+    snapshot = subject.collectPageSnapshot().pagePerformance;
+    assert.equal(snapshot.timer.samples, 1);
+    assert.equal(snapshot.timer.maxLagMs, 120);
+    const lag = reporter.entries.find(entry => entry.event === 'page-timer-lag');
+    assert.equal(JSON.parse(lag.details).lagMs, 120);
+    assert.equal(JSON.parse(lag.details).scrollY, context.window.scrollY);
+    assert.ok(JSON.parse(lag.details).lastScan, 'page stalls retain scan context without attributing the cause');
+    const count = reporter.entries.length;
+    document.visibilityState = 'hidden';
+    pageListeners.get('visibilitychange')();
+    clockMs += 60000;
+    diagnostics.sampleTimer();
+    pageListeners.get('scroll')();
+    assert.equal(frames.length, 0, 'hidden pages do no frame sampling');
+    document.visibilityState = 'visible';
+    pageListeners.get('visibilitychange')();
+    clockMs += 1500;
+    diagnostics.sampleTimer();
+    assert.equal(reporter.entries.length, count, 'background throttling and resume do not report foreground stalls');
+    assert.equal(subject.collectPageSnapshot().pagePerformance.timer.samples, 2);
+    pageListeners.get('scroll')();
+    document.visibilityState = 'hidden';
+    pageListeners.get('visibilitychange')();
+    clockMs += 60000;
+    document.visibilityState = 'visible';
+    pageListeners.get('visibilitychange')();
+    const beforeResume = subject.collectPageSnapshot().pagePerformance.frames.samples;
+    pageListeners.get('scroll')();
+    clockMs += 16;
+    frames.shift()();
+    assert.equal(subject.collectPageSnapshot().pagePerformance.frames.samples, beforeResume + 1,
+        'a queued frame resumes sampling from the fresh foreground scroll');
+    clockMs += 250;
+    frames.shift()();
+    assert.equal(frames.length, 0);
+    delete context.requestAnimationFrame;
+    pageListeners.get('scroll')();
+    assert.equal(frames.length, 0, 'missing frame APIs do not schedule callbacks');
+    assert.equal(subject.collectPageSnapshot().pagePerformance.frameSupported, false);
 }
 run().catch(err => { console.error(err); process.exitCode = 1; });
