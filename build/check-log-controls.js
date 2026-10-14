@@ -11,7 +11,8 @@ const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
-    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls };
+    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls,
+    createResourceTimingDiagnostics, resourceTimingDiagnostics };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -450,6 +451,7 @@ async function run() {
     checkCompactUrls();
     checkNativeLoading(reporter);
     checkPerformanceDiagnostics(reporter);
+    checkResourceTiming(reporter);
     await button.emit('click');
     assert.ok(!copied.includes('PRIVATE_'), 'clipboard writes use the sanitized report');
     context.navigator.clipboard.writeText = async () => { throw new Error('Clipboard permission denied'); };
@@ -464,7 +466,7 @@ async function run() {
     assert.equal(expanded.split('test: uncapped-event').length - 1, 5000, 'all exported events retain their timestamps');
     assert.ok(expanded.includes('{"i":0}') && expanded.includes('{"i":4999}'));
     assert.ok(!reporter.format().includes('events discarded'));
-    console.log('[check-log-controls] Passed copy/download controls, complete-session retention, shared repeat payloads, lossless report references, coalesced native callbacks, export-only request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, complete snapshots, and URL redaction checks.');
+    console.log('[check-log-controls] Passed copy/download controls, complete-session retention, shared repeat payloads, lossless report references, coalesced native callbacks, complete observed request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, complete snapshots, and URL redaction checks.');
 }
 
 function restoreReferences(report) {
@@ -552,6 +554,73 @@ function checkNativeLoading(reporter) {
     assert.equal(timed.resourceTimings[0].durationMs, 150);
     assert.equal(timed.resourceTimings[0].requestStartMs, 0, 'restricted/cached zero fields are preserved without inventing latency');
     delete context.performance.getEntriesByName;
+}
+
+function checkResourceTiming(reporter) {
+    const src = 'https://preview.redd.it/observed.jpg?width=1080&s=signed';
+    const timing = (startTime, name = src) => ({ name, entryType: 'resource', initiatorType: 'img',
+        startTime, duration: 150, responseEnd: startTime + 150, requestStart: 0, responseStart: 0,
+        transferSize: 0, decodedBodySize: 0 });
+    let observer;
+    context.PerformanceObserver = class {
+        constructor(callback) { this.callback = callback; this.pending = []; observer = this; }
+        observe(options) { assert.equal(options.type, 'resource'); assert.equal(options.buffered, true); }
+        takeRecords() { return this.pending.splice(0); }
+    };
+    context.performance.getEntriesByType = () => Array(250).fill({ initiatorType: 'script' });
+    const resourceListeners = new Map();
+    context.performance.addEventListener = (type, fn) => resourceListeners.set(type, fn);
+    context.performance.getEntriesByName = () => []; // Browser buffer filled before these images.
+    const diagnostics = subject.resourceTimingDiagnostics;
+    diagnostics.start();
+    diagnostics.start(); // A repeated start must not replace the live observer.
+    const initial = observer;
+    observer.callback({ getEntries: () => [timing(200)] });
+    assert.equal(diagnostics.read(src)[0].startTimeMs, 200,
+        'image timing survives even when the browser timeline has no matching entry');
+    observer.pending.push(timing(400));
+    const before = reporter.entries.filter(e => e.event === 'image-resource-timing').length;
+    const report = restoreReferences(reporter.format());
+    assert.equal(observer, initial);
+    assert.equal(diagnostics.read(src).length, 2, 'copy drains queued observer entries before taking the snapshot');
+    assert.equal(reporter.entries.filter(e => e.event === 'image-resource-timing').length, before + 1);
+    assert.ok(report.includes('"startTimeMs":400'), 'requests survive in event history even without a matching live post');
+    assert.ok(report.includes(`Events retained: ${reporter.entries.length};`), 'header counts include entries drained during snapshot collection');
+    context.performance.getEntriesByName = () => [timing(200), timing(400), timing(600)];
+    assert.equal(diagnostics.read(src).length, 3, 'observer and timeline overlap does not duplicate requests');
+    observer.callback({ getEntries: () => [timing(800), timing(800)] });
+    context.performance.getEntriesByName = () => [timing(800), timing(800)];
+    assert.equal(diagnostics.read(src).filter(t => t.startTimeMs === 800).length, 2,
+        'distinct identical entries retain their multiplicity when merging data sources');
+    const retained = diagnostics.snapshot().imageEntries;
+    observer.callback({ getEntries: () => Array.from({ length: 1200 }, (_, i) => timing(1000 + i)) });
+    assert.equal(diagnostics.snapshot().imageEntries, retained + 1200, 'resource history has no retention cap');
+    assert.ok(subject.collectPageSnapshot().scanTiming.byReason['resource-timing'].batches > 0,
+        'resource observer work is included in script timing');
+    assert.equal(diagnostics.read(src)[0].requestStartMs, 0, 'restricted timing fields remain explicit zeros');
+    observer.callback({ getEntries: () => [{ ...timing(2500), initiatorType: 'script' }] });
+    assert.equal(diagnostics.snapshot().imageEntries, retained + 1200, 'unrelated resource types add no image observations');
+    resourceListeners.get('resourcetimingbufferfull')();
+    assert.equal(diagnostics.snapshot().bufferFullEvents, 1, 'browser buffer exhaustion remains observable');
+    assert.equal(diagnostics.snapshot().bufferedResourceEntries, 250);
+    delete context.PerformanceObserver;
+    delete context.performance.getEntriesByName;
+    delete context.performance.getEntriesByType;
+    const unavailable = subject.createResourceTimingDiagnostics(); unavailable.start();
+    assert.equal(unavailable.snapshot().observing, false);
+    assert.equal(unavailable.read(src), null, 'unavailable timing is distinguished from an empty match');
+    context.PerformanceObserver = class { observe() { throw new Error('blocked'); } };
+    const blocked = subject.createResourceTimingDiagnostics(); blocked.start();
+    assert.equal(blocked.snapshot().error, 'blocked', 'observer initialization failure is reported without stopping the userscript');
+    context.PerformanceObserver = class {
+        static supportedEntryTypes = ['mark'];
+        observe() { throw new Error('Unsupported resource type must not be observed'); }
+    };
+    const unsupportedType = subject.createResourceTimingDiagnostics(); unsupportedType.start();
+    assert.equal(unsupportedType.snapshot().observerSupported, false, 'observer availability requires resource support');
+    assert.equal(unsupportedType.snapshot().observing, false);
+    delete context.PerformanceObserver;
+    delete context.performance.addEventListener;
 }
 
 function checkCompactUrls() {

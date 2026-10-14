@@ -27,7 +27,7 @@ const SCRIPT_CATALOG = {
         "window.redditNSFWExportLog() and window.redditImageRecreationExportLog() are aliases for the same combined download when present",
         "Exported traces include scan/process/scheduling decisions, normalized post URLs, candidate video URLs, the selected playable source, fallback layout seeding details and height caps, fallback image render-state snapshots, native handoff events, and lost-layer recovery events",
         "Image diagnostics include selected/original sources, candidate host/rejection counts, target/source dimensions, actual/intended fallback wait, and fetch/preload/build elapsed times; identical render observations retain their phases and timestamps, detached images are marked, native handoff height/ownership changes are recorded immediately and over two frames plus 250ms, and timer/source/load viewport snapshots relate waits to scrolling",
-        "Viewport eligibility traces, native image state/events, all available matching browser Resource Timing entries on export, and JSON failure response metadata diagnose late pictures; nearby load bursts share one follow-up per host",
+        "Viewport eligibility traces, native image state/events, complete observed image-request timings with explicit coverage and matching entries on export, and JSON failure response metadata diagnose late pictures; nearby load bursts share one follow-up per host",
         "Rescans on client-side navigation",
         "Falls back to a retry button only if automatic reconstruction fails"
       ],

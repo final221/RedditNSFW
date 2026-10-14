@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.42
+// @version      1.43
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.42';
+    const SCRIPT_VERSION = '1.43';
     const CONFIG = {
         fallbackDelayMs: 1200,
         fallbackViewportMarginPx: 1000,
@@ -36,6 +36,7 @@
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, byReason: {}, last: null };
     let measuringScan = false;
     const performanceDiagnostics = createPerformanceDiagnostics();
+    const resourceTimingDiagnostics = createResourceTimingDiagnostics();
 
     function sanitizeLogText(text) {
         return String(text).replace(/https?:\/\/[^\s"'<>\\]+/gi, (raw) => {
@@ -163,6 +164,18 @@
                 return changed;
             },
             format() {
+                // Snapshot collectors may drain observations queued by the browser.
+                // Capture them before counting or formatting the complete history.
+                const snapshotLines = [];
+                for (const [source, snapshotFn] of Object.entries(this.snapshots)) {
+                    let snapshot;
+                    try {
+                        snapshot = snapshotFn();
+                    } catch (err) {
+                        snapshot = { error: err?.message || String(err) };
+                    }
+                    snapshotLines.push(`## ${source}`, this.stringify(snapshot, true));
+                }
                 const lines = [
                     'RedditNSFW Combined Debug Log',
                     `Generated: ${new Date().toISOString()}`,
@@ -173,18 +186,9 @@
                     `Repeated status observations: ${this.repeatedEntries} (all retained)`,
                     'Event timestamps: millisecond offsets from Session started; add the offset to recover UTC time.',
                     '',
-                    'Snapshots'
+                    'Snapshots',
+                    ...snapshotLines
                 ];
-
-                for (const [source, snapshotFn] of Object.entries(this.snapshots)) {
-                    let snapshot;
-                    try {
-                        snapshot = snapshotFn();
-                    } catch (err) {
-                        snapshot = { error: err?.message || String(err) };
-                    }
-                    lines.push(`## ${source}`, this.stringify(snapshot, true));
-                }
 
                 const payloadCounts = new Map();
                 for (const { details } of this.entries) {
@@ -486,6 +490,7 @@
     }
 
     function collectPageSnapshot() {
+        resourceTimingDiagnostics.flush();
         const containers = document.querySelectorAll('shreddit-blurred-container[reason="nsfw"]');
         return {
             version: SCRIPT_VERSION,
@@ -506,6 +511,7 @@
                 averageMs: scanMetrics.batches ? Math.round(scanMetrics.totalMs / scanMetrics.batches * 100) / 100 : 0
             },
             pagePerformance: performanceDiagnostics.snapshot(),
+            resourceTiming: resourceTimingDiagnostics.snapshot(),
             mediaDiagnostics: collectMediaDiagnostics(containers)
         };
     }
@@ -1362,6 +1368,97 @@
         return state;
     }
 
+    function describeResourceTiming(resource) {
+        return {
+            startTimeMs: resource.startTime, durationMs: resource.duration, responseEndMs: resource.responseEnd,
+            requestStartMs: resource.requestStart, responseStartMs: resource.responseStart,
+            transferSize: resource.transferSize, decodedBodySize: resource.decodedBodySize,
+            initiatorType: resource.initiatorType
+        };
+    }
+
+    function createResourceTimingDiagnostics() {
+        // The browser's resource timeline can fill before a long feed reaches these
+        // images. Observe completions without changing its buffer or querying DOM.
+        const imagesBySource = new Map();
+        let observer = null;
+        let started = false;
+        let startedAtMs = null;
+        let error = null;
+        let imageEntries = 0;
+        let bufferFullEvents = 0;
+        const observerSupported = () => typeof PerformanceObserver === 'function' &&
+            (!PerformanceObserver.supportedEntryTypes || PerformanceObserver.supportedEntryTypes.includes('resource'));
+        const retain = resources => measureScan('resource-timing', () => {
+            for (const resource of resources) {
+                if (resource.initiatorType !== 'img') continue;
+                const timing = describeResourceTiming(resource);
+                if (!imagesBySource.has(resource.name)) imagesBySource.set(resource.name, []);
+                imagesBySource.get(resource.name).push(timing);
+                imageEntries += 1;
+                recordDebug('image-resource-timing', { src: resource.name, ...timing });
+            }
+        });
+        return {
+            start() {
+                if (started) return;
+                started = true;
+                startedAtMs = Math.round(nowMs());
+                if (observerSupported()) {
+                    try {
+                        observer = new PerformanceObserver(list => retain(list.getEntries()));
+                        observer.observe({ type: 'resource', buffered: true });
+                    } catch (err) {
+                        observer?.disconnect?.();
+                        observer = null;
+                        error = err?.message || String(err);
+                    }
+                }
+                if (typeof performance !== 'undefined') {
+                    performance.addEventListener?.('resourcetimingbufferfull', () => measureScan('resource-timing', () => {
+                        bufferFullEvents += 1;
+                        recordDebug('resource-timing-buffer-full', { bufferFullEvents });
+                    }));
+                }
+            },
+            flush() {
+                const pending = observer?.takeRecords() || [];
+                if (pending.length) retain(pending);
+            },
+            read(src) {
+                if (!src) return null;
+                const hasTimeline = typeof performance !== 'undefined' && typeof performance.getEntriesByName === 'function';
+                if (!observer && !hasTimeline) return null;
+                const retained = imagesBySource.get(src) || [];
+                const timeline = hasTimeline ? performance.getEntriesByName(src, 'resource').map(describeResourceTiming) : [];
+                // Merge overlapping sources by multiplicity, not a set: identical
+                // real requests must stay distinct, but two views of one do not.
+                const overlaps = new Map();
+                for (const timing of retained) {
+                    const key = JSON.stringify(timing);
+                    overlaps.set(key, (overlaps.get(key) || 0) + 1);
+                }
+                const result = [...retained];
+                for (const timing of timeline) {
+                    const key = JSON.stringify(timing);
+                    const count = overlaps.get(key) || 0;
+                    if (count) overlaps.set(key, count - 1);
+                    else result.push(timing);
+                }
+                return result.sort((a, b) => a.startTimeMs - b.startTimeMs);
+            },
+            snapshot() {
+                const buffered = typeof performance !== 'undefined' && typeof performance.getEntriesByType === 'function'
+                    ? performance.getEntriesByType('resource') : null;
+                return {
+                    startedAtMs, observerSupported: observerSupported(), observing: !!observer, error,
+                    imageEntries, bufferFullEvents, bufferedResourceEntries: buffered?.length ?? null,
+                    bufferedImageEntries: buffered?.filter(entry => entry.initiatorType === 'img').length ?? null
+                };
+            }
+        };
+    }
+
     function collectNativeImageDiagnostics(host, includeResourceTiming = false, resourceCache = new Map()) {
         const images = host instanceof Element ? [...host.querySelectorAll('img')]
             .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
@@ -1374,9 +1471,7 @@
                     nativeImageObservations.set(node, { src, firstSeenMs: Math.round(nowMs()) });
                 }
                 if (includeResourceTiming && !resourceCache.has(src)) {
-                    resourceCache.set(src, src && typeof performance !== 'undefined' &&
-                        typeof performance.getEntriesByName === 'function'
-                        ? performance.getEntriesByName(src, 'resource') : null);
+                    resourceCache.set(src, resourceTimingDiagnostics.read(src));
                 }
                 return {
                     src, firstSeenMs: nativeImageObservations.get(node)?.firstSeenMs ?? null,
@@ -1384,12 +1479,7 @@
                     naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
                     loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
                     renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
-                    resourceTimings: includeResourceTiming ? (resourceCache.get(src)?.map(resource => ({
-                        startTimeMs: resource.startTime, durationMs: resource.duration, responseEndMs: resource.responseEnd,
-                        requestStartMs: resource.requestStart, responseStartMs: resource.responseStart,
-                        transferSize: resource.transferSize, decodedBodySize: resource.decodedBodySize,
-                        initiatorType: resource.initiatorType
-                    })) ?? null) : undefined
+                    resourceTimings: includeResourceTiming ? resourceCache.get(src) : undefined
                 };
             })
         };
@@ -2456,6 +2546,7 @@
             copyControl: 'Copy log'
         });
         ensureLogControl();
+        resourceTimingDiagnostics.start();
         scan(document, 'startup');
         performanceDiagnostics.start();
         document.addEventListener('load', handleNativeImageEvent, true);

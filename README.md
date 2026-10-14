@@ -1,6 +1,6 @@
 # RedditNSFW
 
-Current: **1.5.2**
+Current: **1.5.3**
 
 RedditNSFW maintains one Reddit/Tampermonkey userscript: Reddit Image Recreation. It attempts native blur removal and reconstructs media when Reddit's own display layer fails.
 
@@ -31,6 +31,7 @@ See [Architecture](docs/ARCHITECTURE.md) for implementation flow, [Debugging](do
 - Both paths combine version/settings/page snapshots, state changes, media recovery failures, scan timing, and native-player diagnostics. All recorded observations and timestamps remain for the full page session, including repeated decisions; identical payloads share storage. Logs stay in memory until a page reload; nothing is uploaded automatically.
 - Shared logs strip known Reddit/Cloudflare challenge parameters from URLs while retaining useful media query parameters. The media snapshot includes every matching post and native image, prioritizing viewport posts.
 - Event details and URLs use lossless references to complete report-local dictionaries; every retained field and timestamp remains, and snapshots stay indented for reading. Foreground timer lateness and scroll frame gaps help distinguish page stalls from synchronous userscript work. See [Debugging](docs/DEBUGGING.md) for measurement limits.
+- Image request timings are retained by a passive Resource Timing observer, including requests whose posts later leave the DOM. Timing coverage and browser-buffer counts appear in the snapshot; unavailable or restricted timing remains explicit.
 
 ## Workflow
 
@@ -49,4 +50,4 @@ Run these commands from the repository's Git checkout. `agent:verify` runs doc s
 ## Recovery behavior
 Automatic reconstruction is deferred until posts are within 1000px of the viewport, then receives the full native grace period. Native image loads remove obsolete overlays immediately. Reports include native callback cost, browser request timing, loading/sizing transitions, and JSON rejection metadata to investigate late pictures, transient retry buttons, and resizing.
 
-Image Recreation 1.42 supports advertised previews on Reddit's `cf.preview.redd.it` CDN and accepts `crop=smart` when advertised and loaded aspect ratios match. Reports include viewport positions at fallback timer firing, source selection, and load completion, plus native image handoff checks over two frames and after 250ms. They explain rejected preview candidates and native handoff layout changes, and identical image observations retain their timestamps. It preserves pending fallback deadlines across rescans and uses sharp, display-sized previews for reconstructed single images, accounting for screen pixel density and Reddit height caps. Failed previews retry the original image. The Copy log report includes the selected source, target dimensions, grace-period wait, fetch time, preload time, and build time. It retains native video and embed playback priority, cancels obsolete fallback attempts after fetch/preload, checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
+Image Recreation 1.43 supports advertised previews on Reddit's `cf.preview.redd.it` CDN and accepts `crop=smart` when advertised and loaded aspect ratios match. Reports include viewport positions at fallback timer firing, source selection, and load completion, plus native image handoff checks over two frames and after 250ms. They explain rejected preview candidates and native handoff layout changes, and identical image observations retain their timestamps. It preserves pending fallback deadlines across rescans and uses sharp, display-sized previews for reconstructed single images, accounting for screen pixel density and Reddit height caps. Failed previews retry the original image. The Copy log report includes the selected source, target dimensions, grace-period wait, fetch time, preload time, and build time. It retains native video and embed playback priority, cancels obsolete fallback attempts after fetch/preload, checks native image visibility and readiness, retries failed post JSON requests, preserves query parameters when probing video variants, and times out stalled image preloads.
