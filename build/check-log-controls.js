@@ -12,7 +12,7 @@ globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebu
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
     handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls,
-    createResourceTimingDiagnostics, resourceTimingDiagnostics, compactSnapshotImageRows };
+    createResourceTimingDiagnostics, resourceTimingDiagnostics, compactSnapshotImageRows, buildOverlay };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -39,6 +39,7 @@ class Element {
     getAttribute(key) { return this.attrs[key] || null; }
     hasAttribute(key) { return Object.hasOwn(this.attrs, key); }
     matches(selector) { return selector.split(',').some(part => part.trim() === this.tagName.toLowerCase() ||
+        (part.trim().startsWith(':scope > .') && this.className === part.trim().slice(':scope > .'.length)) ||
         (part.trim() === 'shreddit-blurred-container[reason="nsfw"]' && this.tagName === 'SHREDDIT-BLURRED-CONTAINER' && this.attrs.reason === 'nsfw')); }
     closest(selector) {
         if (selector === '.tm-unblur-media-layer') return this.customLayer || null;
@@ -451,6 +452,7 @@ async function run() {
     checkCompactUrls();
     checkSnapshotImageRows();
     checkNativeLoading(reporter);
+    await checkRecoveryControls(reporter);
     checkPerformanceDiagnostics(reporter);
     checkResourceTiming(reporter);
     await button.emit('click');
@@ -467,7 +469,7 @@ async function run() {
     assert.equal(expanded.split('test: uncapped-event').length - 1, 5000, 'all exported events retain their timestamps');
     assert.ok(expanded.includes('{"i":0}') && expanded.includes('{"i":4999}'));
     assert.ok(!reporter.format().includes('events discarded'));
-    console.log('[check-log-controls] Passed copy/download controls, complete-session retention, shared repeat payloads, lossless report references, coalesced native callbacks, complete observed request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, complete snapshots, and URL redaction checks.');
+    console.log('[check-log-controls] Passed truthful recovery controls/manual retry, copy/download controls, complete-session retention, shared repeat payloads, lossless report references, coalesced native callbacks, complete observed request timing, compact event details, scan timing, foreground timer/frame gaps, native load handoff/sizing, native-player diagnostics, complete snapshots, and URL redaction checks.');
 }
 
 function restoreReferences(report) {
@@ -486,6 +488,38 @@ function restoreReferences(report) {
         if(tokens.length) restored=restored.replace(new RegExp(tokens.join('|'),'g'),token=>dictionaries.get(token));
     }
     return restored;
+}
+
+async function checkRecoveryControls(reporter) {
+    const host = new Element(); host.isConnected = true;
+    const blur = new Element('shreddit-blurred-container'); blur.attrs.reason = 'nsfw';
+    const image = new Element('img'); image.attrs.src = 'https://preview.redd.it/pending-native.jpg?s=signed';
+    image.complete = false; image.naturalWidth = image.naturalHeight = 0;
+    image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
+    host.appendChild(blur); host.appendChild(image);
+    let requests = 0;
+    context.fetch = async () => { requests++; return { ok: false, status: 403, headers: { get: () => null } }; };
+    subject.buildOverlay(blur, image, '/r/test/comments/recovery-ui/');
+    await new Promise(resolve => setImmediate(resolve));
+    const overlay = host.querySelector(':scope > .tm-nsfw-overlay');
+    assert.ok(overlay, 'failed recovery keeps an actionable control');
+    const button = overlay.querySelector('button');
+    assert.equal(button.textContent, 'Recover image', 'unfinished native loading is not reported as a failed picture');
+    assert.equal(button.disabled, false);
+    assert.equal(overlay.style.pointerEvents, 'none', 'failure controls do not intercept the whole picture');
+    assert.equal(overlay.style.background, 'transparent');
+    assert.ok(reporter.entries.some(e => e.event === 'fetch-post-data-failed' && e.details.includes('403')),
+        'the recovery failure remains in the complete log');
+    image.complete = true;
+    subject.handleNativeImageEvent({ type: 'error', target: image });
+    assert.equal(button.textContent, 'Try again', 'actual native failure exposes retry immediately');
+    await button.emit('click', { preventDefault() {}, stopPropagation() {} });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(requests, 2, 'manual recovery remains available and retries failed metadata');
+    image.naturalWidth = 750; image.naturalHeight = 900;
+    subject.handleNativeImageEvent({ type: 'load', target: image });
+    assert.equal(host.querySelector(':scope > .tm-nsfw-overlay'), null, 'native completion removes the recovery control immediately');
+    delete context.fetch;
 }
 
 function checkNativeLoading(reporter) {

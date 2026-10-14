@@ -1,4 +1,19 @@
 # Changelog
+## 1.7.0 - 2026-10-14T13:16:35.578Z
+Previous: 1.6.0
+Commit: 92c3f6c
+Changes:
+- Wait for unfinished native pictures before automatic recovery
+- Clarify native image identity and compact snapshot rows losslessly
+- Retain observed image request timings beyond browser buffer
+- Preserve complete diagnostic history without logging caps
+- Reduce native diagnostic overhead and compact logs losslessly
+- Defer distant fallback attempts and yield promptly to native images
+- Consolidate repository context into existing documentation
+- Compact diagnostic events and measure foreground scrolling stalls
+- Improve late-image and delayed native-handoff diagnostics
+- Clarify proactive diagnostics preference
+
 ## 1.6.0 - 2026-10-14T12:37:20.135Z
 Previous: 1.5.4
 Commit: 00ae3d5
