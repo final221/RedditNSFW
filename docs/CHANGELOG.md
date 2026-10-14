@@ -1,4 +1,19 @@
 # Changelog
+## 1.5.4 - 2026-10-14T00:18:51.999Z
+Previous: 1.5.3
+Commit: c28ded2
+Changes:
+- Retain observed image request timings beyond browser buffer
+- Preserve complete diagnostic history without logging caps
+- Reduce native diagnostic overhead and compact logs losslessly
+- Defer distant fallback attempts and yield promptly to native images
+- Consolidate repository context into existing documentation
+- Compact diagnostic events and measure foreground scrolling stalls
+- Improve late-image and delayed native-handoff diagnostics
+- Clarify proactive diagnostics preference
+- Support Reddit CDN previews and diagnose picture handoffs
+- Reduce fallback image loading delays while scrolling
+
 ## 1.5.3 - 2026-10-14T00:08:11.898Z
 Previous: 1.5.2
 Commit: 01a5fce

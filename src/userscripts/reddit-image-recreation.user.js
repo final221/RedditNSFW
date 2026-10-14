@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.43
+// @version      1.44
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.43';
+    const SCRIPT_VERSION = '1.44';
     const CONFIG = {
         fallbackDelayMs: 1200,
         fallbackViewportMarginPx: 1000,
@@ -32,6 +32,7 @@
     const fallbackTimers = new WeakMap();
     const nativeImageFollowups = new WeakMap();
     const nativeImageObservations = new WeakMap();
+    let nextNativeImageId = 0;
     const viewportFallback = createViewportFallbackGate();
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, byReason: {}, last: null };
     let measuringScan = false;
@@ -77,6 +78,25 @@
             ? compact.slice(0, divider) + '\n\n' + dictionary + compact.slice(divider)
             : compact + '\n\n' + dictionary;
         return result.length < report.length ? result : report;
+    }
+
+    function compactSnapshotImageRows(serialized) {
+        // One complete image per row; outer structure stays indented. Temporary
+        // markers never enter the report and cannot collide with literal content.
+        try {
+            const snapshot = JSON.parse(serialized);
+            const rows = [];
+            const literal = JSON.stringify(snapshot);
+            let prefix = '@snapshotImage';
+            while (literal.includes(prefix)) prefix += '_';
+            const marked = JSON.stringify(snapshot, (key, value) => key === 'images' && Array.isArray(value)
+                ? value.map(image => { const token = prefix + rows.length; rows.push(JSON.stringify(image)); return token; })
+                : value, 2);
+            const compact = marked.replace(new RegExp('"' + prefix + '(\\d+)"', 'g'), (_, index) => rows[Number(index)]);
+            return compact.length < serialized.length ? compact : serialized;
+        } catch {
+            return serialized;
+        }
     }
 
     function describeElement(el) {
@@ -174,7 +194,7 @@
                     } catch (err) {
                         snapshot = { error: err?.message || String(err) };
                     }
-                    snapshotLines.push(`## ${source}`, this.stringify(snapshot, true));
+                    snapshotLines.push(`## ${source}`, compactSnapshotImageRows(this.stringify(snapshot, true)));
                 }
                 const lines = [
                     'RedditNSFW Combined Debug Log',
@@ -1459,6 +1479,15 @@
         };
     }
 
+    function observeNativeImageSource(node, src) {
+        let observation = nativeImageObservations.get(node);
+        if (!observation || observation.src !== src) {
+            observation = { imageId: observation?.imageId ?? ++nextNativeImageId, src, firstSeenMs: Math.round(nowMs()) };
+            nativeImageObservations.set(node, observation);
+        }
+        return observation;
+    }
+
     function collectNativeImageDiagnostics(host, includeResourceTiming = false, resourceCache = new Map()) {
         const images = host instanceof Element ? [...host.querySelectorAll('img')]
             .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
@@ -1467,14 +1496,12 @@
             images: images.map(node => {
                 const box = node.getBoundingClientRect();
                 const src = node.currentSrc || node.getAttribute('src') || null;
-                if (nativeImageObservations.get(node)?.src !== src) {
-                    nativeImageObservations.set(node, { src, firstSeenMs: Math.round(nowMs()) });
-                }
+                const observation = observeNativeImageSource(node, src);
                 if (includeResourceTiming && !resourceCache.has(src)) {
                     resourceCache.set(src, resourceTimingDiagnostics.read(src));
                 }
                 return {
-                    src, firstSeenMs: nativeImageObservations.get(node)?.firstSeenMs ?? null,
+                    src, imageId: observation.imageId, firstSeenMs: observation.firstSeenMs,
                     complete: node.complete ?? null,
                     naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
                     loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
@@ -1508,9 +1535,12 @@
         if (!host?.isConnected || !image.isConnected || !blur?.isConnected || getOverlayHost(blur) !== host) return;
         const normalizedPostUrl = resolvePostHref(blur, host);
         const imageBox = image.getBoundingClientRect();
+        const src = image.currentSrc || image.getAttribute('src') || null;
+        const observation = observeNativeImageSource(image, src);
         recordDebug(`native-image-${event.type}`, {
-            normalizedPostUrl, src: image.currentSrc || image.getAttribute('src') || null,
+            normalizedPostUrl, src,
             imageState: {
+                imageId: observation.imageId, firstSeenMs: observation.firstSeenMs,
                 complete: image.complete ?? null, naturalWidth: image.naturalWidth ?? null, naturalHeight: image.naturalHeight ?? null,
                 renderedBox: { width: Math.round(imageBox.width), height: Math.round(imageBox.height) }
             },

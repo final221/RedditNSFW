@@ -12,7 +12,7 @@ globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebu
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
     handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls,
-    createResourceTimingDiagnostics, resourceTimingDiagnostics };
+    createResourceTimingDiagnostics, resourceTimingDiagnostics, compactSnapshotImageRows };
 })();`;
 const timers = new Map();
 const downloads = [];
@@ -449,6 +449,7 @@ async function run() {
     assert.equal(panel.hidden, true, 'successful retry closes the manual fallback');
     await checkDiagnostics(reporter);
     checkCompactUrls();
+    checkSnapshotImageRows();
     checkNativeLoading(reporter);
     checkPerformanceDiagnostics(reporter);
     checkResourceTiming(reporter);
@@ -548,12 +549,45 @@ function checkNativeLoading(reporter) {
     subject.collectNativeImageDiagnostics(host);
     assert.equal(resourceReads, 0, 'resource timing is queried only on export');
     const timed = subject.collectNativeImageDiagnostics(host, true).images[0];
+    const clone = new Element('img'); clone.attrs.src = image.attrs.src; host.appendChild(clone);
+    const identity = subject.collectNativeImageDiagnostics(host).images;
+    assert.notEqual(identity[0].imageId, identity[1].imageId, 'same-source native clones have distinct identities');
+    assert.equal(subject.collectNativeImageDiagnostics(host).images[0].imageId, identity[0].imageId,
+        'image identity remains stable across snapshots');
+    subject.handleNativeImageEvent({ type: 'load', target: image });
+    const identifiedLoad = JSON.parse(reporter.entries.filter(e => e.event === 'native-image-load').at(-1).details);
+    assert.equal(identifiedLoad.imageState.imageId, identity[0].imageId, 'native event identity matches its snapshot element');
+    assert.equal(identifiedLoad.imageState.firstSeenMs, identity[0].firstSeenMs);
+    const originalClock = clockMs; clockMs += 10;
+    image.attrs.src = 'https://preview.redd.it/replaced-source.jpg';
+    const changedSource = subject.collectNativeImageDiagnostics(host).images[0];
+    assert.equal(changedSource.imageId, identity[0].imageId, 'source changes preserve element identity');
+    assert.equal(changedSource.firstSeenMs, clockMs, 'new sources reset only their first observation time');
+    clockMs = originalClock; image.attrs.src = signedSrc;
     assert.equal(timed.resourceTimings.length, 2, 'every matching browser timing entry is included');
     assert.equal(timed.resourceTimings[1].startTimeMs, 400);
     assert.equal(timed.resourceTimings[0].startTimeMs, 200);
     assert.equal(timed.resourceTimings[0].durationMs, 150);
     assert.equal(timed.resourceTimings[0].requestStartMs, 0, 'restricted/cached zero fields are preserved without inventing latency');
     delete context.performance.getEntriesByName;
+}
+
+function checkSnapshotImageRows() {
+    const snapshot = { viewport: { width: 700, height: 540 }, nativeImages: { total: 20,
+        images: Array.from({ length: 20 }, (_, i) => ({ src: 'https://preview.redd.it/image.jpg?width=1080&s=signed',
+            imageId: i + 1, firstSeenMs: 1, complete: false, naturalWidth: 0, naturalHeight: 0,
+            literal: '@snapshotImage0 with "quotes" and } brackets',
+            renderedBox: { width: 700, height: 540 }, resourceTimings: [{ startTimeMs: 0, durationMs: 123.45 }] })) } };
+    const original = JSON.stringify(snapshot, null, 2);
+    const compact = subject.compactSnapshotImageRows(original);
+    assert.ok(compact.length < original.length * .65, 'complete image rows reduce snapshot whitespace substantially');
+    assert.deepEqual(JSON.parse(compact), snapshot, 'all images, fields, timings, strings, and dictionary-like literals survive');
+    assert.deepEqual(JSON.parse(subject.compactSnapshotImageRows(original.replaceAll('@snapshotImage', '\\u0040snapshotImage'))), snapshot,
+        'escaped literal marker prefixes also round-trip without replacement');
+    assert.equal(subject.compactSnapshotImageRows(JSON.stringify(snapshot)), JSON.stringify(snapshot),
+        'already compact snapshots never grow');
+    assert.ok(compact.includes('"viewport": {\n'), 'outer snapshot structure remains readable');
+    assert.equal(subject.compactSnapshotImageRows('snapshot unavailable'), 'snapshot unavailable');
 }
 
 function checkResourceTiming(reporter) {
