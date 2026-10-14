@@ -1,6 +1,6 @@
 {
   "name": "redditnsfw",
-  "version": "1.5.4",
+  "version": "1.6.0",
   "description": "Reddit Tampermonkey userscripts for NSFW unblur and media reconstruction.",
   "private": true,
   "scripts": {

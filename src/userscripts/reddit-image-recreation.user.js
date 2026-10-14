@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.44
+// @version      1.45
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,9 +11,10 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.44';
+    const SCRIPT_VERSION = '1.45';
     const CONFIG = {
         fallbackDelayMs: 1200,
+        nativeImageWaitMs: 8000,
         fallbackViewportMarginPx: 1000,
         preferNativeReveal: false,
         useClickFallback: false,
@@ -1298,6 +1299,10 @@
         }
 
         if (!node.complete || node.naturalWidth <= 0 || node.naturalHeight <= 0) return false;
+        return isNativeImageCandidate(node, blurContainer);
+    }
+
+    function isNativeImageCandidate(node, blurContainer) {
         const src = node.currentSrc || node.getAttribute('src') || '';
         const loweredSrc = src.toLowerCase();
         const className = node.className || '';
@@ -1327,6 +1332,17 @@
         }
 
         return false;
+    }
+
+    function findPendingNativeImage(host, blurContainer) {
+        if (!(host instanceof Element)) return null;
+        for (const node of host.querySelectorAll('img')) {
+            const src = node.currentSrc || node.getAttribute('src') || '';
+            if (node.complete !== false || !src || src.toLowerCase().includes('blur=') ||
+                node.closest('.tm-unblur-media-layer')) continue;
+            if (isNativeImageCandidate(node, blurContainer) && isVisibleNativeMedia(node)) return node;
+        }
+        return null;
     }
 
     function findNativeMediaOwner(host, blurContainer) {
@@ -1553,7 +1569,11 @@
             viewportFallback.forget(host);
             yieldToNativeMedia(host, blur);
         }
-        if (event.type !== 'load') recordNativeImageState(host, normalizedPostUrl);
+        if (event.type !== 'load') {
+            recordNativeImageState(host, normalizedPostUrl);
+            const pending = fallbackTimers.get(host);
+            if (pending?.waitingForNativeImage) pending.fire();
+        }
         if (event.type === 'load') {
             const pending = nativeImageFollowups.get(host);
             if (pending) clearTimeout(pending);
@@ -2469,14 +2489,24 @@
 
         const previous = fallbackTimers.get(host);
         // Rescans must not turn the native grace period into a sliding deadline.
-        if (previous?.blurContainer === el && previous.normalizedPostUrl === normalizedPostUrl) return;
+        if (previous?.blurContainer === el && previous.normalizedPostUrl === normalizedPostUrl) {
+            if (previous.waitingForNativeImage && (!findPendingNativeImage(host, el) ||
+                nowMs() - previous.startedAt >= CONFIG.nativeImageWaitMs)) previous.fire();
+            return;
+        }
         clearPendingFallback(host);
         const pending = { blurContainer: el, normalizedPostUrl, startedAt: nowMs(), timer: null };
-        pending.timer = setTimeout(() => {
+        pending.fire = () => measureScan('fallback-timer', () => {
             if (fallbackTimers.get(host) !== pending) return;
-            fallbackTimers.delete(host);
-            if (!host.isConnected || !el.isConnected || getOverlayHost(el) !== host) {
-                recordDebug('fallback-timer-cancelled', { normalizedPostUrl, reason: 'host-detached-or-replaced' });
+            clearTimeout(pending.timer);
+            const currentPostUrl = normalizePostHref(resolvePostHref(el, host));
+            const postChanged = normalizedPostUrl && currentPostUrl && currentPostUrl !== normalizedPostUrl;
+            if (!host.isConnected || !el.isConnected || getOverlayHost(el) !== host ||
+                postChanged) {
+                fallbackTimers.delete(host);
+                recordDebug('fallback-timer-cancelled', {
+                    normalizedPostUrl, reason: postChanged ? 'post-changed' : 'host-detached-or-replaced'
+                });
                 return;
             }
             const timerBlockers = collectFallbackBlockers(host, el);
@@ -2485,16 +2515,36 @@
                 blockers: timerBlockers,
                 imgFound: Boolean(img),
                 waitMs: Math.round(nowMs() - pending.startedAt),
-                intendedWaitMs: CONFIG.fallbackDelayMs,
+                intendedWaitMs: pending.waitingForNativeImage ? CONFIG.nativeImageWaitMs : CONFIG.fallbackDelayMs,
+                waitedForNativeImage: Boolean(pending.waitingForNativeImage),
                 viewport: snapshotHostViewport(host)
             });
             if (timerBlockers.length) {
+                fallbackTimers.delete(host);
                 yieldToNativeMedia(host, el);
                 return;
             }
-            if (viewportFallback.defer(host, el, normalizedPostUrl)) return;
+            if (viewportFallback.defer(host, el, normalizedPostUrl)) {
+                fallbackTimers.delete(host);
+                return;
+            }
+            const nativeImage = findPendingNativeImage(host, el);
+            const remainingMs = CONFIG.nativeImageWaitMs - (nowMs() - pending.startedAt);
+            if (nativeImage && remainingMs > 0) {
+                pending.waitingForNativeImage = true;
+                recordDebug('fallback-waiting-native-image', {
+                    normalizedPostUrl, remainingMs: Math.round(remainingMs),
+                    nativeImageWaitMs: CONFIG.nativeImageWaitMs,
+                    nativeImage: { ...observeNativeImageSource(nativeImage, nativeImage.currentSrc || nativeImage.getAttribute('src')) },
+                    viewport: snapshotHostViewport(host)
+                });
+                pending.timer = setTimeout(pending.fire, remainingMs);
+                return;
+            }
+            fallbackTimers.delete(host);
             buildOverlay(el, el.querySelector('img') || img, postHref);
-        }, CONFIG.fallbackDelayMs);
+        });
+        pending.timer = setTimeout(pending.fire, CONFIG.fallbackDelayMs);
 
         fallbackTimers.set(host, pending);
     }

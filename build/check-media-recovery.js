@@ -10,7 +10,8 @@ assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage, canContinueFallback,
     scheduleFallbackBuild, clearPendingFallback, getSharedLogReporter,
-    extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, viewportFallback, CONFIG };
+    extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, viewportFallback,
+    findPendingNativeImage, handleNativeImageEvent, fallbackTimers, CONFIG };
 buildOverlay = (...args) => globalThis.buildAttempts.push(args);
 })();`;
 class Element {
@@ -23,7 +24,8 @@ class Element {
         this.children = [];
         this.dataset = {};
     }
-    matches(selector) { return selector.split(',').map(s => s.trim()).includes(this.tag); }
+    matches(selector) { return selector.split(',').map(s => s.trim()).some(s => s === this.tag ||
+        (s === 'shreddit-blurred-container[reason="nsfw"]' && this.tag === 'shreddit-blurred-container' && this.attrs.reason === 'nsfw')); }
     closest(selector) {
         if (selector === '.tm-unblur-media-layer') return this.customLayer || null;
         if (selector === '[slot="revealed"]') return this.revealedSlot || null;
@@ -69,6 +71,86 @@ function advanceTo(time) {
     for (const [id, fn] of [...timers]) {
         if (fn.dueAt <= clockMs) { timers.delete(id); fn(); }
     }
+}
+
+function checkPendingNativeFallback() {
+    timers.clear(); clockMs = 0;
+    const host = new Element();
+    const blur = new Element('shreddit-blurred-container'); blur.attrs.reason = 'nsfw'; blur.parentElement = host;
+    const image = new Element('img'); image.parentElement = host; image.className = 'media-lightbox-img';
+    image.attrs.src = 'https://preview.redd.it/pending.jpg?width=1080&s=signed';
+    image.closest = selector => selector === '[slot="post-media-container"]' ? host :
+        selector === '.tm-unblur-media-layer' ? image.customLayer || null : null;
+    image.complete = false; image.naturalWidth = image.naturalHeight = 0;
+    host.children = [blur, image];
+    const schedule = () => subject.scheduleFallbackBuild(blur, image, '/comments/pending/');
+    let before = context.buildAttempts.length;
+    schedule(); advanceTo(1200);
+    assert.equal(context.buildAttempts.length, before, 'unfinished sharp native image prevents premature recovery/403 retry UI');
+    const deadline = [...timers.values()][0].dueAt;
+    assert.equal(deadline, 8000, 'native image wait has a fixed deadline from the first eligible decision');
+    advanceTo(1500); schedule();
+    assert.equal([...timers.values()][0].dueAt, deadline, 'rescans do not extend the native wait');
+    image.attrs.src += '&new-source=1'; schedule();
+    assert.equal([...timers.values()][0].dueAt, deadline, 'source changes do not extend the eligible-host deadline');
+    image.complete = true; image.naturalWidth = image.naturalHeight = 750;
+    subject.handleNativeImageEvent({ type: 'load', target: image });
+    assert.equal(subject.fallbackTimers.has(host), false, 'native load cancels recovery immediately without waiting for a rescan');
+    assert.equal(context.buildAttempts.length, before);
+    timers.clear();
+
+    clockMs = 10000; image.complete = false; image.naturalWidth = image.naturalHeight = 0;
+    schedule(); advanceTo(11200);
+    image.complete = true; subject.handleNativeImageEvent({ type: 'error', target: image });
+    assert.equal(context.buildAttempts.length, before + 1, 'broken native image releases an existing wait immediately');
+    assert.equal(timers.size, 0);
+
+    before = context.buildAttempts.length; clockMs = 20000; image.complete = false;
+    schedule(); advanceTo(21200); advanceTo(27999);
+    assert.equal(context.buildAttempts.length, before);
+    advanceTo(28000);
+    assert.equal(context.buildAttempts.length, before + 1, 'a stuck native image still reaches recovery');
+
+    for (const kind of ['blurred', 'hidden', 'collapsed', 'fallback', 'failed', 'no-source', 'background']) {
+        clockMs += 10000; image.complete = false; image.customLayer = null;
+        image.className = 'media-lightbox-img'; delete image.attrs.role;
+        image.attrs.src = 'https://preview.redd.it/pending.jpg'; image.style.display = 'block'; image.box = { width: 700, height: 540 };
+        if (kind === 'blurred') image.attrs.src += '?blur=40';
+        if (kind === 'hidden') image.style.display = 'none';
+        if (kind === 'collapsed') image.box.height = 0;
+        if (kind === 'fallback') image.customLayer = new Element();
+        if (kind === 'failed') image.complete = true;
+        if (kind === 'no-source') image.attrs.src = '';
+        if (kind === 'background') { image.className = ''; image.attrs.role = 'presentation'; }
+        before = context.buildAttempts.length;
+        schedule(); advanceTo(clockMs + 1200);
+        assert.equal(context.buildAttempts.length, before + 1, kind + ' images do not delay ordinary recovery');
+    }
+    image.complete = false; image.customLayer = null; image.style.display = 'block'; image.box.height = 540;
+    image.className = 'media-lightbox-img'; delete image.attrs.role;
+    image.attrs.src = 'https://preview.redd.it/pending.jpg';
+    before = context.buildAttempts.length;
+    schedule(); advanceTo(clockMs + 1200); host.isConnected = false;
+    advanceTo(clockMs + 6800);
+    assert.equal(timers.size, 0, 'detached hosts retire pending native waits');
+    assert.equal(context.buildAttempts.length, before);
+
+    host.isConnected = true; context.window.innerHeight = 900;
+    host.box = { width: 700, height: 540, top: 500, bottom: 1040 };
+    schedule(); advanceTo(clockMs + 1200);
+    host.box.top = 3000; host.box.bottom = 3540; schedule();
+    assert.equal(subject.fallbackTimers.has(host), false, 'leaving the preload range retires the native wait');
+    host.isConnected = false; subject.viewportFallback.prune();
+    host.isConnected = true; delete host.box; delete context.window.innerHeight;
+
+    schedule(); advanceTo(clockMs + 1200);
+    const queryAll = host.querySelectorAll.bind(host);
+    host.querySelectorAll = selector => selector.startsWith('a[')
+        ? [{ getAttribute: () => '/comments/reused/' }] : queryAll(selector);
+    before = context.buildAttempts.length;
+    advanceTo(clockMs + 6800);
+    assert.equal(context.buildAttempts.length, before, 'a changed post cannot build from the old native-wait deadline');
+    assert.equal(subject.fallbackTimers.has(host), false);
 }
 
 function checkFallbackScheduling() {
@@ -132,6 +214,7 @@ function checkFallbackScheduling() {
 
 async function run() {
     checkFallbackScheduling();
+    checkPendingNativeFallback();
     checkViewportFallback();
     const originalSrc = 'https://i.redd.it/large.jpg';
     const resolution = width => ({
