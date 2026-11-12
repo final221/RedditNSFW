@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.47
+// @version      1.48
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,9 +11,10 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.47';
+    const SCRIPT_VERSION = '1.48';
     const CONFIG = {
         fallbackDelayMs: 1200,
+        nativeResolutionGraceMs: 2200,
         preloadNativeImages: true,
         nativeImagePreloadMarginPx: 1000,
         fallbackViewportMarginPx: 1000,
@@ -34,6 +35,7 @@
     const fallbackTimers = new WeakMap();
     const nativeImageFollowups = new WeakMap();
     const nativeImageObservations = new WeakMap();
+    const nativeImageResolutions = new WeakMap();
     let nextNativeImageId = 0;
     const viewportFallback = createViewportFallbackGate();
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, byReason: {}, last: null };
@@ -1521,11 +1523,57 @@
         const mediaNodes = host.querySelectorAll('img, video, iframe');
         for (const node of mediaNodes) {
             if (nodeHasUsableNativeMedia(node, blurContainer)) {
+                if (node.matches('img')) rememberNativeImageResolution(host, blurContainer, node);
                 return { node, reason: node.matches('img') ? 'visible-loaded-image' : 'usable-native-media' };
             }
         }
 
         return null;
+    }
+
+    function rememberNativeImageResolution(host, blurContainer, image) {
+        if (!(host instanceof Element) || !(blurContainer instanceof Element) || !(image instanceof Element)) return null;
+        const normalizedPostUrl = normalizePostHref(resolvePostHref(blurContainer, host));
+        const src = image.currentSrc || image.getAttribute('src') || null;
+        if (!normalizedPostUrl || !src) return null;
+        const observation = observeNativeImageSource(image, src);
+        const resolution = {
+            normalizedPostUrl, src, imageId: observation.imageId, image,
+            seenAtMs: nowMs()
+        };
+        nativeImageResolutions.set(host, resolution);
+        return resolution;
+    }
+
+    function getRecentNativeImageResolution(host, postHref) {
+        if (!(host instanceof Element)) return null;
+        const resolution = nativeImageResolutions.get(host);
+        if (!resolution) return null;
+        const normalizedPostUrl = normalizePostHref(postHref) || postHref;
+        if (!normalizedPostUrl) return null;
+        if (normalizedPostUrl !== resolution.normalizedPostUrl) {
+            nativeImageResolutions.delete(host);
+            return null;
+        }
+        const ageMs = nowMs() - resolution.seenAtMs;
+        if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > CONFIG.nativeResolutionGraceMs) {
+            nativeImageResolutions.delete(host);
+            return null;
+        }
+        return {
+            imageId: resolution.imageId, src: resolution.src,
+            ageMs: Math.round(ageMs), graceMs: CONFIG.nativeResolutionGraceMs
+        };
+    }
+
+    function clearNativeImageResolution(host, postHref, image) {
+        if (!(host instanceof Element)) return false;
+        const resolution = nativeImageResolutions.get(host);
+        const normalizedPostUrl = normalizePostHref(postHref) || postHref;
+        if (!resolution || resolution.image !== image ||
+            (normalizedPostUrl && resolution.normalizedPostUrl !== normalizedPostUrl)) return false;
+        nativeImageResolutions.delete(host);
+        return true;
     }
 
     function hasNativeResolvedMedia(host, blurContainer) {
@@ -1735,6 +1783,11 @@
             viewport: snapshotHostViewport(host),
             resourceTimings: src ? resourceTimingDiagnostics.read(src) : null
         });
+        if (event.type === 'load' && renderState.usable) {
+            rememberNativeImageResolution(host, blur, image);
+        } else if (event.type === 'error') {
+            clearNativeImageResolution(host, normalizedPostUrl, image);
+        }
         const hasFallbackWork = fallbackTimers.has(host) || viewportFallback.has(host) ||
             host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1';
         if (event.type === 'load' && hasFallbackWork && hasNativeResolvedMedia(host, blur)) {
@@ -1770,7 +1823,9 @@
         // or Reddit replaces the host. An obsolete attempt must never insert media.
         if (!host.isConnected || !blurContainer.isConnected ||
             overlay.parentElement !== host || getOverlayHost(blurContainer) !== host) return false;
-        if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
+        if (hasNativeResolvedMedia(host, blurContainer) ||
+            getRecentNativeImageResolution(host, resolvePostHref(blurContainer, host)) ||
+            hasNativeRevealControl(host)) {
             overlay.remove();
             delete host.dataset.tmOverlayBuilt;
             return false;
@@ -1853,6 +1908,9 @@
         if (host.dataset.tmOverlayBuilt === '1') blockers.push('overlay-built');
         if (host.dataset.tmMediaBuilt === '1') blockers.push('media-built');
         if (nativeOwner) blockers.push('native-resolved');
+        else if (getRecentNativeImageResolution(host, resolvePostHref(blurContainer, host))) {
+            blockers.push('native-image-recently-resolved');
+        }
         if (hasNativeRevealControl(host)) blockers.push('native-reveal-control');
         return blockers;
     }
@@ -2486,6 +2544,24 @@
             yieldToNativeMedia(host, blurContainer);
             return null;
         }
+        const normalizedPostUrl = resolvePostHref(blurContainer, host);
+        const recentNativeImageResolution = getRecentNativeImageResolution(host, normalizedPostUrl);
+        if (recentNativeImageResolution) {
+            recordDebug('fallback-recovery-control-suppressed', {
+                normalizedPostUrl,
+                reason: 'native-image-recently-resolved',
+                buttonText: button.textContent,
+                nativeOwner: null,
+                recentNativeImageResolution,
+                hostViewport: snapshotHostViewport(host),
+                hostVisualState: snapshotElementVisualState(host),
+                blurVisualState: snapshotElementVisualState(blurContainer),
+                nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
+            }, overlay);
+            overlay.remove();
+            delete host.dataset.tmOverlayBuilt;
+            return null;
+        }
         const pending = findPendingNativeImage(host, blurContainer);
         button.disabled = false;
         button.textContent = pending ? 'Recover image' : 'Try again';
@@ -2681,12 +2757,15 @@
         if (host.dataset.tmOverlayBuilt === '1') refreshRecoveryControl(host, el);
         recordNativeImageState(host, normalizedPostUrl);
         const nativeOwner = findNativeMediaOwner(host, el);
+        const recentNativeImageResolution = nativeOwner ? null :
+            getRecentNativeImageResolution(host, normalizedPostUrl);
         const initialBlockers = collectFallbackBlockers(host, el, nativeOwner);
         const nativeState = describeNativeOwner(nativeOwner);
         const changed = recordDebug('schedule-fallback', {
             normalizedPostUrl,
             blockers: initialBlockers,
             nativeOwner: nativeState,
+            ...(recentNativeImageResolution ? { recentNativeImageResolution } : {}),
             imgFound: Boolean(img)
         }, host);
         if (changed && nativeState?.error) {
@@ -2696,7 +2775,7 @@
         if (initialBlockers.length) {
             clearPendingFallback(host);
             viewportFallback.forget(host);
-            yieldToNativeMedia(host, el);
+            if (!initialBlockers.includes('native-image-recently-resolved')) yieldToNativeMedia(host, el);
             return;
         }
 
@@ -2723,10 +2802,14 @@
                 });
                 return;
             }
-            const timerBlockers = collectFallbackBlockers(host, el);
+            const timerNativeOwner = findNativeMediaOwner(host, el);
+            const recentNativeImageResolution = timerNativeOwner ? null :
+                getRecentNativeImageResolution(host, normalizedPostUrl);
+            const timerBlockers = collectFallbackBlockers(host, el, timerNativeOwner);
             recordDebug('fallback-timer-fired', {
                 normalizedPostUrl,
                 blockers: timerBlockers,
+                ...(recentNativeImageResolution ? { recentNativeImageResolution } : {}),
                 imgFound: Boolean(img),
                 waitMs: Math.round(nowMs() - pending.startedAt),
                 intendedWaitMs: CONFIG.fallbackDelayMs,
@@ -2734,7 +2817,7 @@
             });
             if (timerBlockers.length) {
                 fallbackTimers.delete(host);
-                yieldToNativeMedia(host, el);
+                if (!timerBlockers.includes('native-image-recently-resolved')) yieldToNativeMedia(host, el);
                 return;
             }
             if (viewportFallback.defer(host, el, normalizedPostUrl)) {

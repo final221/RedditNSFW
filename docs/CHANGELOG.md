@@ -1,4 +1,19 @@
 # Changelog
+## 1.9.0 - 2026-11-12T19:46:47.464Z
+Previous: 1.8.0
+Commit: 1be11d1
+Changes:
+- Fix false recovery controls and improve load diagnostics
+- Restore fast recovery and preload nearby native pictures
+- Wait for unfinished native pictures before automatic recovery
+- Clarify native image identity and compact snapshot rows losslessly
+- Retain observed image request timings beyond browser buffer
+- Preserve complete diagnostic history without logging caps
+- Reduce native diagnostic overhead and compact logs losslessly
+- Defer distant fallback attempts and yield promptly to native images
+- Consolidate repository context into existing documentation
+- Compact diagnostic events and measure foreground scrolling stalls
+
 ## 1.8.0 - 2026-11-12T18:05:38.713Z
 Previous: 1.7.0
 Commit: 3c92885

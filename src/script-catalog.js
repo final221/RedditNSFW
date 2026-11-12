@@ -32,7 +32,7 @@ const SCRIPT_CATALOG = {
         "Nearby native loading-hint promotions retain source/element identity and viewport position; recovery keeps the 1200ms grace and distinguishes unfinished native loading from failed recovery in small actionable corner controls",
         "Shows a retry control after failed reconstruction only while no usable native media is detected; removes it immediately when native media is resolved"
       ],
-      knobs: ["mediaCache", "fallbackDelayMs", "preloadNativeImages", "nativeImagePreloadMarginPx", "fallbackViewportMarginPx", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugSlowScanMs", "debugFrameGapMs", "debugTimerLagMs", "debugConsole", "URL change polling interval"]
+      knobs: ["mediaCache", "fallbackDelayMs", "nativeResolutionGraceMs", "preloadNativeImages", "nativeImagePreloadMarginPx", "fallbackViewportMarginPx", "preferNativeReveal", "useClickFallback", "videoRecoveryTimeoutMs", "imagePreloadTimeoutMs", "useSizedImagePreviews", "debugSlowScanMs", "debugFrameGapMs", "debugTimerLagMs", "debugConsole", "URL change polling interval"]
     }
   }
 };

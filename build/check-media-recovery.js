@@ -11,7 +11,8 @@ const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage, canContinueFallback,
     scheduleFallbackBuild, clearPendingFallback, getSharedLogReporter,
     extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, viewportFallback,
-    findPendingNativeImage, handleNativeImageEvent, fallbackTimers, createNativeImagePreloader, CONFIG };
+    findPendingNativeImage, findNativeMediaOwner, collectFallbackBlockers, handleNativeImageEvent,
+    fallbackTimers, createNativeImagePreloader, CONFIG };
 buildOverlay = (...args) => globalThis.buildAttempts.push(args);
 })();`;
 class Element {
@@ -194,9 +195,57 @@ function checkFallbackScheduling() {
     assert.equal(timers.size, 0);
 }
 
+function checkNativeResolutionGrace() {
+    timers.clear(); clockMs = 0; context.window.innerHeight = 900;
+    context.location.href = 'https://www.reddit.com/r/test/comments/native-grace/';
+    context.location.pathname = '/r/test/comments/native-grace/';
+    const host = new Element();
+    host.box = { left: 100, right: 420, top: 100, bottom: 340, width: 320, height: 240 };
+    const blur = new Element('shreddit-blurred-container');
+    blur.attrs.reason = 'nsfw'; blur.parentElement = host;
+    const image = new Element('img');
+    image.attrs.src = 'https://preview.redd.it/native-grace.jpg?auto=webp';
+    image.complete = true; image.naturalWidth = 750; image.naturalHeight = 1100;
+    image.box = host.box; image.parentElement = host;
+    image.closest = selector => selector === '[slot="post-media-container"]' ? host :
+        selector === '.tm-unblur-media-layer' ? null : null;
+    blur.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
+    host.children = [blur, image];
+
+    const resolved = subject.findNativeMediaOwner(host, blur);
+    assert.equal(resolved?.reason, 'visible-loaded-image');
+    image.isConnected = false; host.children = [blur];
+    assert.ok(subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
+        'a short DOM gap after a usable native image is recognized does not immediately qualify for fallback');
+    const entryStart = subject.getSharedLogReporter().entries.length;
+    subject.scheduleFallbackBuild(blur, image, context.location.href);
+    assert.equal(subject.fallbackTimers.has(host), false, 'recent native resolution prevents an automatic fallback timer');
+    const scheduled = subject.getSharedLogReporter().entries.slice(entryStart)
+        .find(entry => entry.event === 'schedule-fallback');
+    const scheduleState = JSON.parse(scheduled.details);
+    assert.ok(scheduleState.blockers.includes('native-image-recently-resolved'));
+    assert.equal(scheduleState.recentNativeImageResolution.src, image.attrs.src);
+
+    advanceTo(subject.CONFIG.nativeResolutionGraceMs + 1);
+    assert.ok(!subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
+        'fallback eligibility returns after the recent-resolution grace expires');
+    subject.scheduleFallbackBuild(blur, image, context.location.href);
+    assert.equal(subject.fallbackTimers.has(host), true, 'genuinely missing media can resume fallback after the grace');
+    subject.clearPendingFallback(host);
+
+    image.isConnected = true; image.complete = true;
+    image.naturalWidth = 750; image.naturalHeight = 1100; host.children = [blur, image];
+    assert.equal(subject.findNativeMediaOwner(host, blur)?.reason, 'visible-loaded-image');
+    image.complete = false; image.naturalWidth = image.naturalHeight = 0;
+    subject.handleNativeImageEvent({ type: 'error', target: image });
+    assert.ok(!subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
+        'an error from the resolved image clears its grace immediately');
+}
+
 async function run() {
     checkFallbackScheduling();
     checkNativeImagePreloading();
+    checkNativeResolutionGrace();
     checkViewportFallback();
     const originalSrc = 'https://i.redd.it/large.jpg';
     const resolution = width => ({

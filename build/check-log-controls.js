@@ -549,6 +549,24 @@ async function checkRecoveryControls(reporter) {
     assert.equal(loaded.imageViewport.intersectsViewport, true);
     assert.equal(loaded.resourceTimings[0].durationMs, 150,
         'native load directly links the matching request phases and duration to its image ID');
+    const recentHost = new Element(); recentHost.isConnected = true;
+    const recentBlur = new Element('shreddit-blurred-container'); recentBlur.attrs.reason = 'nsfw';
+    const recentImage = new Element('img'); recentImage.attrs.src = 'https://preview.redd.it/recently-resolved.jpg';
+    recentImage.complete = true; recentImage.naturalWidth = 750; recentImage.naturalHeight = 1100;
+    recentHost.appendChild(recentBlur); recentHost.appendChild(recentImage);
+    assert.equal(subject.findNativeMediaOwner(recentHost, recentBlur)?.reason, 'visible-loaded-image');
+    recentImage.remove();
+    const recentOverlay = new Element('div'); recentOverlay.className = 'tm-nsfw-overlay';
+    recentOverlay.dataset.tmRecoveryFailed = '1';
+    recentOverlay.appendChild(new Element('button'));
+    recentHost.appendChild(recentOverlay); recentHost.dataset.tmOverlayBuilt = '1';
+    subject.refreshRecoveryControl(recentHost, recentBlur);
+    assert.equal(recentHost.querySelector(':scope > .tm-nsfw-overlay'), null,
+        'a recently resolved image suppresses a stale recovery control through a brief DOM swap');
+    const recentSuppression = JSON.parse(reporter.entries.filter(entry =>
+        entry.event === 'fallback-recovery-control-suppressed' && entry.details.includes('native-image-recently-resolved')).at(-1).details);
+    assert.equal(recentSuppression.nativeOwner, null);
+    assert.equal(recentSuppression.recentNativeImageResolution.src, 'https://preview.redd.it/recently-resolved.jpg');
     delete context.performance.getEntriesByName;
     delete context.fetch;
 }
