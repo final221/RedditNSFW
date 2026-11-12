@@ -1,4 +1,19 @@
 # Changelog
+## 1.8.0 - 2026-11-12T18:05:38.713Z
+Previous: 1.7.0
+Commit: 3c92885
+Changes:
+- Restore fast recovery and preload nearby native pictures
+- Wait for unfinished native pictures before automatic recovery
+- Clarify native image identity and compact snapshot rows losslessly
+- Retain observed image request timings beyond browser buffer
+- Preserve complete diagnostic history without logging caps
+- Reduce native diagnostic overhead and compact logs losslessly
+- Defer distant fallback attempts and yield promptly to native images
+- Consolidate repository context into existing documentation
+- Compact diagnostic events and measure foreground scrolling stalls
+- Improve late-image and delayed native-handoff diagnostics
+
 ## 1.7.0 - 2026-10-14T13:16:35.578Z
 Previous: 1.6.0
 Commit: 92c3f6c

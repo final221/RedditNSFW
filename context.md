@@ -11,4 +11,5 @@
 ## Cross-cutting repository knowledge
 
 - Diagnostic captures establish only what their coverage observes. Missing errors or successful intermediate operations do not prove unobserved intermittent issues are absent or media browsing is healthy; a failed auxiliary recovery does not establish failure of the primary media path. Separate observations, plausible explanations, and unmeasured behavior. Performance attribution must include all relevant script-owned callbacks, rather than just one subsystem's timings.
+- A visible picture can make a failed-recovery `Try again` control a false positive. Treat post-JSON errors as auxiliary recovery failures, and capture current native ownership plus each image's candidate, rendered visibility, blur state, and viewport when deciding whether to show or remove that control.
 - Media cost depends on source dimensions as well as displayed size. A small on-screen image can still require a large transfer and decoded allocation; consider both when investigating responsiveness or evaluating media-source choices.

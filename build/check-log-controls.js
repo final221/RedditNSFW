@@ -11,7 +11,7 @@ const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
     findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
-    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, compactLogUrls,
+    handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, refreshRecoveryControl, compactLogUrls,
     createResourceTimingDiagnostics, resourceTimingDiagnostics, compactSnapshotImageRows, buildOverlay };
 })();`;
 const timers = new Map();
@@ -53,7 +53,7 @@ class Element {
     }
     getRootNode() { return {}; }
     getBoundingClientRect() { return this.box || { width: 320, height: 240, top: 0, bottom: 240 }; }
-    contains(node) { return this.children.includes(node); }
+    contains(node) { return this.children.includes(node) || this.children.some(child => child.contains?.(node)); }
     async emit(event, details = {}) { return this.listeners.get(event)?.(details); }
     appendChild(child) { this.children.push(child); child.isConnected = true; child.parentElement = this; }
     remove() {
@@ -494,6 +494,7 @@ async function checkRecoveryControls(reporter) {
     const host = new Element(); host.isConnected = true;
     const blur = new Element('shreddit-blurred-container'); blur.attrs.reason = 'nsfw';
     const image = new Element('img'); image.attrs.src = 'https://preview.redd.it/pending-native.jpg?s=signed';
+    image.box = { width: 700, height: 540, top: 80, bottom: 620, left: 40, right: 740 };
     image.complete = false; image.naturalWidth = image.naturalHeight = 0;
     image.closest = selector => selector === '[slot="post-media-container"]' ? host : null;
     host.appendChild(blur); host.appendChild(image);
@@ -510,6 +511,18 @@ async function checkRecoveryControls(reporter) {
     assert.equal(overlay.style.background, 'transparent');
     assert.ok(reporter.entries.some(e => e.event === 'fetch-post-data-failed' && e.details.includes('403')),
         'the recovery failure remains in the complete log');
+    const recoveryState = JSON.parse(reporter.entries.filter(e => e.event === 'fallback-recovery-control').at(-1).details);
+    assert.equal(recoveryState.nativeOwner, null, 'recovery logging records why no native image owner was accepted');
+    assert.ok(recoveryState.nativeImages.images[0].renderState, JSON.stringify(recoveryState));
+    assert.equal(recoveryState.nativeImages.images[0].renderState.candidate, true);
+    assert.equal(recoveryState.nativeImages.images[0].renderState.visible, true);
+    assert.equal(recoveryState.nativeImages.images[0].renderState.sourceBlurred, false);
+    assert.equal(recoveryState.nativeImages.images[0].renderState.intersectsViewport, true,
+        'recovery logging records the image itself in the viewport');
+    assert.equal(recoveryState.hostVisualState.backgroundImage, 'none',
+        'recovery logging records host background imagery that may not be represented by an img element');
+    assert.equal(recoveryState.blurVisualState.filter, 'none',
+        'recovery logging records visual styles on Reddit\'s blur wrapper');
     image.complete = true;
     subject.handleNativeImageEvent({ type: 'error', target: image });
     assert.equal(button.textContent, 'Try again', 'actual native failure exposes retry immediately');
@@ -517,8 +530,26 @@ async function checkRecoveryControls(reporter) {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests, 2, 'manual recovery remains available and retries failed metadata');
     image.naturalWidth = 750; image.naturalHeight = 900;
+    subject.refreshRecoveryControl(host, blur);
+    assert.equal(host.querySelector(':scope > .tm-nsfw-overlay'), null,
+        'a recovered native picture removes an existing failed-recovery control during refresh');
+    assert.equal(host.dataset.tmOverlayBuilt, undefined);
+    assert.ok(reporter.entries.some(e => e.event === 'fallback-recovery-control-suppressed' &&
+        e.details.includes('visible-loaded-image')),
+    'the control suppression records the native owner that made it obsolete');
+    const suppressedState = JSON.parse(reporter.entries.filter(e => e.event === 'fallback-recovery-control-suppressed').at(-1).details);
+    assert.equal(suppressedState.hostVisualState.backgroundImage, 'none');
+    assert.equal(suppressedState.blurVisualState.tag, 'shreddit-blurred-container');
+    context.performance.getEntriesByName = () => [{ startTime: 200, duration: 150, responseEnd: 350,
+        requestStart: 80, responseStart: 100, transferSize: 1024, decodedBodySize: 800, initiatorType: 'img' }];
     subject.handleNativeImageEvent({ type: 'load', target: image });
-    assert.equal(host.querySelector(':scope > .tm-nsfw-overlay'), null, 'native completion removes the recovery control immediately');
+    const loaded = JSON.parse(reporter.entries.filter(entry => entry.event === 'native-image-load').at(-1).details);
+    const loadedState = loaded.imageState;
+    assert.ok(Number.isFinite(loadedState.sourceObservedWaitMs), 'native load logs source-observation-to-load wait');
+    assert.equal(loaded.imageViewport.intersectsViewport, true);
+    assert.equal(loaded.resourceTimings[0].durationMs, 150,
+        'native load directly links the matching request phases and duration to its image ID');
+    delete context.performance.getEntriesByName;
     delete context.fetch;
 }
 

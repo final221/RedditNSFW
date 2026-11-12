@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.46
+// @version      1.47
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,7 +11,7 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.46';
+    const SCRIPT_VERSION = '1.47';
     const CONFIG = {
         fallbackDelayMs: 1200,
         preloadNativeImages: true,
@@ -956,6 +956,23 @@
         };
     }
 
+    function snapshotElementVisualState(node) {
+        if (!(node instanceof Element)) return null;
+        const style = getComputedStyle(node);
+        const box = node.getBoundingClientRect();
+        return {
+            tag: String(node.tagName || node.tag || '').toLowerCase(),
+            backgroundImage: style.backgroundImage || 'none',
+            filter: style.filter || 'none',
+            backdropFilter: style.backdropFilter || style.webkitBackdropFilter || 'none',
+            display: style.display || null,
+            visibility: style.visibility || null,
+            opacity: style.opacity || null,
+            renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
+            viewport: snapshotHostViewport(node)
+        };
+    }
+
     async function preloadFallbackImage(media, layout, canContinue, normalizedPostUrl, host) {
         const selected = selectDisplayImageSource(media, layout);
         recordDebug('image-source-selected', {
@@ -1302,39 +1319,113 @@
         }
 
         if (!node.complete || node.naturalWidth <= 0 || node.naturalHeight <= 0) return false;
-        return isNativeImageCandidate(node, blurContainer);
+        return isNativeImageCandidate(node, blurContainer) && !getNativeImageBlurFilters(node, null).length;
     }
 
-    function isNativeImageCandidate(node, blurContainer) {
+    function nativeImageCandidateState(node, blurContainer) {
+        if (!(node instanceof Element)) return { candidate: false, reason: 'not-image-element' };
+        if (node.closest('.tm-unblur-media-layer')) return { candidate: false, reason: 'fallback-layer' };
         const src = node.currentSrc || node.getAttribute('src') || '';
         const loweredSrc = src.toLowerCase();
+        const sourceBlurred = loweredSrc.includes('blur=');
         const className = node.className || '';
         const alt = (node.getAttribute('alt') || '').trim();
         const role = (node.getAttribute('role') || '').toLowerCase();
 
         if (className.includes('media-lightbox-img')) {
-            return !loweredSrc.includes('blur=');
+            return sourceBlurred
+                ? { candidate: false, reason: 'blurred-lightbox-source' }
+                : { candidate: true, reason: 'media-lightbox-image' };
         }
 
         if (node.closest('gallery-carousel, shreddit-gallery-carousel, faceplate-carousel, figure')) {
-            if (!loweredSrc.includes('blur=')) {
-                return true;
-            }
+            if (!sourceBlurred) return { candidate: true, reason: 'gallery-or-figure-image' };
         }
 
         if (role === 'presentation' || className.includes('post-background-image-filter')) {
-            return false;
+            return { candidate: false, reason: 'decorative-or-background-image' };
         }
 
-        if (alt && !loweredSrc.includes('blur=')) {
-            return true;
-        }
+        if (alt && !sourceBlurred) return { candidate: true, reason: 'described-image' };
 
         if (!(blurContainer instanceof Element) || !blurContainer.contains(node)) {
-            return true;
+            return { candidate: true, reason: 'outside-blur-container' };
         }
 
-        return false;
+        if (!sourceBlurred && (isDirectImageUrl(src) || isPreviewImageUrl(src))) {
+            return { candidate: true, reason: 'reddit-media-source' };
+        }
+
+        return { candidate: false, reason: sourceBlurred ? 'blurred-source' : 'unidentified-image-inside-blur-container' };
+    }
+
+    function isNativeImageCandidate(node, blurContainer) {
+        return nativeImageCandidateState(node, blurContainer).candidate;
+    }
+
+    function getNativeImageBlurFilters(node, stopAt) {
+        const filters = [];
+        let current = node;
+        while (current instanceof Element) {
+            const style = getComputedStyle(current);
+            const filter = style.filter || 'none';
+            const backdropFilter = style.backdropFilter || style.webkitBackdropFilter || 'none';
+            if (/\bblur\s*\(/i.test(filter) || /\bblur\s*\(/i.test(backdropFilter)) {
+                filters.push({
+                    tag: String(current.tagName || current.tag || '').toLowerCase(),
+                    filter, backdropFilter
+                });
+            }
+            if (current === stopAt) break;
+            current = current.assignedSlot || current.parentElement || current.getRootNode()?.host;
+        }
+        return filters;
+    }
+
+    function describeNativeImageRenderState(node, host, blurContainer) {
+        const source = node.currentSrc || node.getAttribute('src') || null;
+        const candidate = nativeImageCandidateState(node, blurContainer);
+        const blurFilters = getNativeImageBlurFilters(node, host);
+        const renderPath = [];
+        let current = node;
+        while (current instanceof Element) {
+            const style = getComputedStyle(current);
+            renderPath.push({
+                tag: String(current.tagName || current.tag || '').toLowerCase(),
+                className: typeof current.className === 'string' ? current.className : '',
+                display: style.display || null,
+                visibility: style.visibility || null,
+                opacity: style.opacity || null,
+                filter: style.filter || null,
+                backdropFilter: style.backdropFilter || style.webkitBackdropFilter || null,
+                clipPath: style.clipPath || null,
+                overflow: style.overflow || null
+            });
+            if (current === host) break;
+            current = current.assignedSlot || current.parentElement || current.getRootNode()?.host;
+        }
+        const box = node.getBoundingClientRect();
+        const imageViewport = snapshotHostViewport(node);
+        const visible = isVisibleNativeMedia(node);
+        const complete = node.complete === true && node.naturalWidth > 0 && node.naturalHeight > 0;
+        return {
+            candidate: candidate.candidate,
+            candidateReason: candidate.reason,
+            sourceBlurred: String(source || '').toLowerCase().includes('blur='),
+            alt: (node.getAttribute('alt') || '').trim() || null,
+            role: node.getAttribute('role') || null,
+            objectFit: getComputedStyle(node).objectFit || null,
+            complete: node.complete ?? null,
+            naturalWidth: node.naturalWidth ?? null,
+            naturalHeight: node.naturalHeight ?? null,
+            visible,
+            intersectsViewport: imageViewport?.intersectsViewport ?? null,
+            usable: complete && visible && candidate.candidate && blurFilters.length === 0,
+            renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
+            imageViewport,
+            blurFilters,
+            renderPath
+        };
     }
 
     function findPendingNativeImage(host, blurContainer) {
@@ -1572,15 +1663,19 @@
         return observation;
     }
 
-    function collectNativeImageDiagnostics(host, includeResourceTiming = false, resourceCache = new Map()) {
+    function collectNativeImageDiagnostics(host, includeResourceTiming = false, resourceCache = new Map(), includeRenderState = false, blurContainer = null) {
         const images = host instanceof Element ? [...host.querySelectorAll('img')]
             .filter(node => !node.closest('.tm-unblur-media-layer')) : [];
+        const blur = blurContainer || (host instanceof Element
+            ? host.querySelector('shreddit-blurred-container[reason="nsfw"]') || host.querySelector('shreddit-blurred-container')
+            : null);
         return {
             total: images.length,
             images: images.map(node => {
                 const box = node.getBoundingClientRect();
                 const src = node.currentSrc || node.getAttribute('src') || null;
                 const observation = observeNativeImageSource(node, src);
+                const renderState = includeRenderState ? describeNativeImageRenderState(node, host, blur) : null;
                 if (includeResourceTiming && !resourceCache.has(src)) {
                     resourceCache.set(src, resourceTimingDiagnostics.read(src));
                 }
@@ -1590,6 +1685,7 @@
                     naturalWidth: node.naturalWidth ?? null, naturalHeight: node.naturalHeight ?? null,
                     loading: node.getAttribute('loading'), decoding: node.getAttribute('decoding'),
                     renderedBox: { width: Math.round(box.width), height: Math.round(box.height) },
+                    ...(renderState ? { renderState } : {}),
                     resourceTimings: includeResourceTiming ? resourceCache.get(src) : undefined
                 };
             })
@@ -1621,14 +1717,23 @@
         const imageBox = image.getBoundingClientRect();
         const src = image.currentSrc || image.getAttribute('src') || null;
         const observation = observeNativeImageSource(image, src);
+        const renderState = describeNativeImageRenderState(image, host, blur);
+        if (src) resourceTimingDiagnostics.flush();
         recordDebug(`native-image-${event.type}`, {
             normalizedPostUrl, src,
             imageState: {
                 imageId: observation.imageId, firstSeenMs: observation.firstSeenMs,
+                sourceObservedWaitMs: Math.max(0, Math.round(nowMs() - observation.firstSeenMs)),
                 complete: image.complete ?? null, naturalWidth: image.naturalWidth ?? null, naturalHeight: image.naturalHeight ?? null,
-                renderedBox: { width: Math.round(imageBox.width), height: Math.round(imageBox.height) }
+                renderedBox: { width: Math.round(imageBox.width), height: Math.round(imageBox.height) },
+                candidate: renderState.candidate, candidateReason: renderState.candidateReason,
+                sourceBlurred: renderState.sourceBlurred, visible: renderState.visible,
+                intersectsViewport: renderState.intersectsViewport, usable: renderState.usable,
+                blurFilters: renderState.blurFilters
             },
-            viewport: snapshotHostViewport(host)
+            imageViewport: renderState.imageViewport,
+            viewport: snapshotHostViewport(host),
+            resourceTimings: src ? resourceTimingDiagnostics.read(src) : null
         });
         const hasFallbackWork = fallbackTimers.has(host) || viewportFallback.has(host) ||
             host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1';
@@ -2366,6 +2471,21 @@
         if (overlay?.dataset.tmRecoveryFailed !== '1') return null;
         const button = overlay.querySelector('button');
         if (!button) return null;
+        const nativeOwner = findNativeMediaOwner(host, blurContainer);
+        if (nativeOwner) {
+            recordDebug('fallback-recovery-control-suppressed', {
+                normalizedPostUrl: resolvePostHref(blurContainer, host),
+                reason: 'native-media-resolved',
+                buttonText: button.textContent,
+                nativeOwner: describeNativeOwner(nativeOwner, true),
+                hostViewport: snapshotHostViewport(host),
+                hostVisualState: snapshotElementVisualState(host),
+                blurVisualState: snapshotElementVisualState(blurContainer),
+                nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
+            }, overlay);
+            yieldToNativeMedia(host, blurContainer);
+            return null;
+        }
         const pending = findPendingNativeImage(host, blurContainer);
         button.disabled = false;
         button.textContent = pending ? 'Recover image' : 'Try again';
@@ -2378,7 +2498,17 @@
         button.style.font = '600 11px/1.2 sans-serif';
         recordDebug('fallback-recovery-control', {
             normalizedPostUrl: resolvePostHref(blurContainer, host), buttonText: button.textContent,
-            nativeImagePending: Boolean(pending)
+            nativeImagePending: Boolean(pending),
+            pendingImageSrc: pending ? pending.currentSrc || pending.getAttribute('src') || null : null,
+            nativeOwner: null,
+            hostBox: (() => {
+                const box = host.getBoundingClientRect();
+                return { width: Math.round(box.width), height: Math.round(box.height) };
+            })(),
+            hostViewport: snapshotHostViewport(host),
+            hostVisualState: snapshotElementVisualState(host),
+            blurVisualState: snapshotElementVisualState(blurContainer),
+            nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
         }, overlay);
         return button.textContent;
     }

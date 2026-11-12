@@ -383,6 +383,25 @@ async function run() {
     assert.equal(subject.hasNativeResolvedMedia(host, host), true);
     img.attrs.src += '?blur=40';
     assert.equal(subject.hasNativeResolvedMedia(host, host), false);
+
+    const blurredContainer = new Element('shreddit-blurred-container');
+    const nativePicture = new Element('img');
+    nativePicture.attrs.src = 'https://preview.redd.it/native-without-alt.jpg?auto=webp&s=signed';
+    nativePicture.complete = true; nativePicture.naturalWidth = 750; nativePicture.naturalHeight = 1000;
+    nativePicture.box = { width: 700, height: 540, top: 0, bottom: 540, left: 0, right: 700 };
+    nativePicture.parentElement = blurredContainer;
+    blurredContainer.contains = node => node === nativePicture;
+    host.children = [nativePicture];
+    assert.equal(subject.hasNativeResolvedMedia(host, blurredContainer), true,
+        'a visible, loaded Reddit media image inside the blur wrapper is native media even without alt text');
+    nativePicture.style.filter = 'blur(12px)';
+    assert.equal(subject.hasNativeResolvedMedia(host, blurredContainer), false,
+        'a sharp source with an applied CSS blur is not treated as a usable native image');
+    nativePicture.style.filter = 'none';
+    nativePicture.attrs.src += '&blur=40';
+    assert.equal(subject.hasNativeResolvedMedia(host, blurredContainer), false,
+        'a blurred Reddit preview is not mistaken for the resolved native image');
+
     host.children = [new Element('shreddit-async-loader')];
     assert.equal(subject.hasNativeResolvedMedia(host, host), false);
 
