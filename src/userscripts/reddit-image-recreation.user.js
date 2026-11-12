@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Reddit Image Recreation
 // @namespace    https://tampermonkey.net/
-// @version      1.48
+// @version      1.49
 // @match        https://www.reddit.com/*
 // @match        https://sh.reddit.com/*
 // @grant        none
@@ -11,10 +11,9 @@
 (function () {
     'use strict';
 
-    const SCRIPT_VERSION = '1.48';
+    const SCRIPT_VERSION = '1.49';
     const CONFIG = {
         fallbackDelayMs: 1200,
-        nativeResolutionGraceMs: 2200,
         preloadNativeImages: true,
         nativeImagePreloadMarginPx: 1000,
         fallbackViewportMarginPx: 1000,
@@ -35,7 +34,7 @@
     const fallbackTimers = new WeakMap();
     const nativeImageFollowups = new WeakMap();
     const nativeImageObservations = new WeakMap();
-    const nativeImageResolutions = new WeakMap();
+    const lastNativeImageResolutions = new WeakMap();
     let nextNativeImageId = 0;
     const viewportFallback = createViewportFallbackGate();
     const scanMetrics = { batches: 0, processedContainers: 0, totalMs: 0, maxMs: 0, slowBatches: 0, byReason: {}, last: null };
@@ -1541,38 +1540,54 @@
             normalizedPostUrl, src, imageId: observation.imageId, image,
             seenAtMs: nowMs()
         };
-        nativeImageResolutions.set(host, resolution);
+        lastNativeImageResolutions.set(host, resolution);
         return resolution;
     }
 
-    function getRecentNativeImageResolution(host, postHref) {
+    function describeLastNativeImageResolution(host, postHref) {
         if (!(host instanceof Element)) return null;
-        const resolution = nativeImageResolutions.get(host);
+        const resolution = lastNativeImageResolutions.get(host);
         if (!resolution) return null;
         const normalizedPostUrl = normalizePostHref(postHref) || postHref;
-        if (!normalizedPostUrl) return null;
-        if (normalizedPostUrl !== resolution.normalizedPostUrl) {
-            nativeImageResolutions.delete(host);
-            return null;
-        }
-        const ageMs = nowMs() - resolution.seenAtMs;
-        if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > CONFIG.nativeResolutionGraceMs) {
-            nativeImageResolutions.delete(host);
-            return null;
-        }
+        if (!normalizedPostUrl || normalizedPostUrl !== resolution.normalizedPostUrl) return null;
+        const image = resolution.image;
+        const imageConnected = Boolean(image?.isConnected);
+        const imageBox = imageConnected ? image.getBoundingClientRect() : null;
+        const currentSrc = image ? image.currentSrc || image.getAttribute('src') || null : null;
+        const now = nowMs();
         return {
-            imageId: resolution.imageId, src: resolution.src,
-            ageMs: Math.round(ageMs), graceMs: CONFIG.nativeResolutionGraceMs
+            imageId: resolution.imageId,
+            src: resolution.src,
+            lastUsableAtMs: Math.round(resolution.seenAtMs),
+            ageSinceLastUsableMs: Math.max(0, Math.round(now - resolution.seenAtMs)),
+            imageConnected,
+            imageInHost: imageConnected && (image === host || host.contains(image)),
+            sourceMatches: currentSrc === resolution.src,
+            currentSrc,
+            complete: image?.complete ?? null,
+            naturalWidth: image?.naturalWidth ?? null,
+            naturalHeight: image?.naturalHeight ?? null,
+            visibleNow: imageConnected ? isVisibleNativeMedia(image) : false,
+            renderedBox: imageBox
+                ? { width: Math.round(imageBox.width), height: Math.round(imageBox.height) }
+                : null,
+            invalidationReason: resolution.invalidationReason || null,
+            invalidatedAtMs: Number.isFinite(resolution.invalidatedAtMs)
+                ? Math.round(resolution.invalidatedAtMs)
+                : null,
+            invalidationSource: resolution.invalidationSource || null
         };
     }
 
-    function clearNativeImageResolution(host, postHref, image) {
+    function invalidateNativeImageResolution(host, postHref, image) {
         if (!(host instanceof Element)) return false;
-        const resolution = nativeImageResolutions.get(host);
+        const resolution = lastNativeImageResolutions.get(host);
         const normalizedPostUrl = normalizePostHref(postHref) || postHref;
         if (!resolution || resolution.image !== image ||
             (normalizedPostUrl && resolution.normalizedPostUrl !== normalizedPostUrl)) return false;
-        nativeImageResolutions.delete(host);
+        resolution.invalidationReason = 'native-image-error';
+        resolution.invalidatedAtMs = nowMs();
+        resolution.invalidationSource = image.currentSrc || image.getAttribute('src') || null;
         return true;
     }
 
@@ -1786,7 +1801,7 @@
         if (event.type === 'load' && renderState.usable) {
             rememberNativeImageResolution(host, blur, image);
         } else if (event.type === 'error') {
-            clearNativeImageResolution(host, normalizedPostUrl, image);
+            invalidateNativeImageResolution(host, normalizedPostUrl, image);
         }
         const hasFallbackWork = fallbackTimers.has(host) || viewportFallback.has(host) ||
             host.dataset.tmOverlayBuilt === '1' || host.dataset.tmMediaBuilt === '1';
@@ -1823,9 +1838,7 @@
         // or Reddit replaces the host. An obsolete attempt must never insert media.
         if (!host.isConnected || !blurContainer.isConnected ||
             overlay.parentElement !== host || getOverlayHost(blurContainer) !== host) return false;
-        if (hasNativeResolvedMedia(host, blurContainer) ||
-            getRecentNativeImageResolution(host, resolvePostHref(blurContainer, host)) ||
-            hasNativeRevealControl(host)) {
+        if (hasNativeResolvedMedia(host, blurContainer) || hasNativeRevealControl(host)) {
             overlay.remove();
             delete host.dataset.tmOverlayBuilt;
             return false;
@@ -1908,9 +1921,6 @@
         if (host.dataset.tmOverlayBuilt === '1') blockers.push('overlay-built');
         if (host.dataset.tmMediaBuilt === '1') blockers.push('media-built');
         if (nativeOwner) blockers.push('native-resolved');
-        else if (getRecentNativeImageResolution(host, resolvePostHref(blurContainer, host))) {
-            blockers.push('native-image-recently-resolved');
-        }
         if (hasNativeRevealControl(host)) blockers.push('native-reveal-control');
         return blockers;
     }
@@ -2530,36 +2540,21 @@
         const button = overlay.querySelector('button');
         if (!button) return null;
         const nativeOwner = findNativeMediaOwner(host, blurContainer);
+        const normalizedPostUrl = resolvePostHref(blurContainer, host);
+        const lastResolvedNativeImage = describeLastNativeImageResolution(host, normalizedPostUrl);
         if (nativeOwner) {
             recordDebug('fallback-recovery-control-suppressed', {
-                normalizedPostUrl: resolvePostHref(blurContainer, host),
+                normalizedPostUrl,
                 reason: 'native-media-resolved',
                 buttonText: button.textContent,
                 nativeOwner: describeNativeOwner(nativeOwner, true),
+                ...(lastResolvedNativeImage ? { lastResolvedNativeImage } : {}),
                 hostViewport: snapshotHostViewport(host),
                 hostVisualState: snapshotElementVisualState(host),
                 blurVisualState: snapshotElementVisualState(blurContainer),
                 nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
             }, overlay);
             yieldToNativeMedia(host, blurContainer);
-            return null;
-        }
-        const normalizedPostUrl = resolvePostHref(blurContainer, host);
-        const recentNativeImageResolution = getRecentNativeImageResolution(host, normalizedPostUrl);
-        if (recentNativeImageResolution) {
-            recordDebug('fallback-recovery-control-suppressed', {
-                normalizedPostUrl,
-                reason: 'native-image-recently-resolved',
-                buttonText: button.textContent,
-                nativeOwner: null,
-                recentNativeImageResolution,
-                hostViewport: snapshotHostViewport(host),
-                hostVisualState: snapshotElementVisualState(host),
-                blurVisualState: snapshotElementVisualState(blurContainer),
-                nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
-            }, overlay);
-            overlay.remove();
-            delete host.dataset.tmOverlayBuilt;
             return null;
         }
         const pending = findPendingNativeImage(host, blurContainer);
@@ -2573,7 +2568,7 @@
         button.style.padding = '6px 10px';
         button.style.font = '600 11px/1.2 sans-serif';
         recordDebug('fallback-recovery-control', {
-            normalizedPostUrl: resolvePostHref(blurContainer, host), buttonText: button.textContent,
+            normalizedPostUrl, buttonText: button.textContent,
             nativeImagePending: Boolean(pending),
             pendingImageSrc: pending ? pending.currentSrc || pending.getAttribute('src') || null : null,
             nativeOwner: null,
@@ -2584,6 +2579,7 @@
             hostViewport: snapshotHostViewport(host),
             hostVisualState: snapshotElementVisualState(host),
             blurVisualState: snapshotElementVisualState(blurContainer),
+            ...(lastResolvedNativeImage ? { lastResolvedNativeImage } : {}),
             nativeImages: collectNativeImageDiagnostics(host, false, new Map(), true, blurContainer)
         }, overlay);
         return button.textContent;
@@ -2757,15 +2753,12 @@
         if (host.dataset.tmOverlayBuilt === '1') refreshRecoveryControl(host, el);
         recordNativeImageState(host, normalizedPostUrl);
         const nativeOwner = findNativeMediaOwner(host, el);
-        const recentNativeImageResolution = nativeOwner ? null :
-            getRecentNativeImageResolution(host, normalizedPostUrl);
         const initialBlockers = collectFallbackBlockers(host, el, nativeOwner);
         const nativeState = describeNativeOwner(nativeOwner);
         const changed = recordDebug('schedule-fallback', {
             normalizedPostUrl,
             blockers: initialBlockers,
             nativeOwner: nativeState,
-            ...(recentNativeImageResolution ? { recentNativeImageResolution } : {}),
             imgFound: Boolean(img)
         }, host);
         if (changed && nativeState?.error) {
@@ -2775,7 +2768,7 @@
         if (initialBlockers.length) {
             clearPendingFallback(host);
             viewportFallback.forget(host);
-            if (!initialBlockers.includes('native-image-recently-resolved')) yieldToNativeMedia(host, el);
+            yieldToNativeMedia(host, el);
             return;
         }
 
@@ -2785,7 +2778,7 @@
         }
 
         const previous = fallbackTimers.get(host);
-        // Rescans must not turn the native grace period into a sliding deadline.
+        // Rescans preserve the first eligible fallback deadline for this target.
         if (previous?.blurContainer === el && previous.normalizedPostUrl === normalizedPostUrl) return;
         clearPendingFallback(host);
         const pending = { blurContainer: el, normalizedPostUrl, startedAt: nowMs(), timer: null };
@@ -2803,13 +2796,12 @@
                 return;
             }
             const timerNativeOwner = findNativeMediaOwner(host, el);
-            const recentNativeImageResolution = timerNativeOwner ? null :
-                getRecentNativeImageResolution(host, normalizedPostUrl);
             const timerBlockers = collectFallbackBlockers(host, el, timerNativeOwner);
+            const lastResolvedNativeImage = describeLastNativeImageResolution(host, normalizedPostUrl);
             recordDebug('fallback-timer-fired', {
                 normalizedPostUrl,
                 blockers: timerBlockers,
-                ...(recentNativeImageResolution ? { recentNativeImageResolution } : {}),
+                ...(lastResolvedNativeImage ? { lastResolvedNativeImage } : {}),
                 imgFound: Boolean(img),
                 waitMs: Math.round(nowMs() - pending.startedAt),
                 intendedWaitMs: CONFIG.fallbackDelayMs,
@@ -2817,7 +2809,7 @@
             });
             if (timerBlockers.length) {
                 fallbackTimers.delete(host);
-                if (!timerBlockers.includes('native-image-recently-resolved')) yieldToNativeMedia(host, el);
+                yieldToNativeMedia(host, el);
                 return;
             }
             if (viewportFallback.defer(host, el, normalizedPostUrl)) {

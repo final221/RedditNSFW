@@ -9,7 +9,8 @@ const boundary = source.indexOf('    const mo = new MutationObserver');
 assert.ok(boundary > 0);
 const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { sharedLog, createLogControl, ensureLogControl, recordDebug, measureScan, collectPageSnapshot,
-    findNativeMediaOwner, describeNativeOwner, collectMediaDiagnostics, scheduleFallbackBuild, hasNativeResolvedMedia,
+    findNativeMediaOwner, describeNativeOwner, describeLastNativeImageResolution, collectMediaDiagnostics,
+    scheduleFallbackBuild, hasNativeResolvedMedia,
     attachImageRenderDebug, yieldToNativeMedia, observeNativeImageHandoff, snapshotHostViewport, performanceDiagnostics,
     handleNativeImageEvent, recordNativeImageState, collectNativeImageDiagnostics, refreshRecoveryControl, compactLogUrls,
     createResourceTimingDiagnostics, resourceTimingDiagnostics, compactSnapshotImageRows, buildOverlay };
@@ -540,6 +541,8 @@ async function checkRecoveryControls(reporter) {
     const suppressedState = JSON.parse(reporter.entries.filter(e => e.event === 'fallback-recovery-control-suppressed').at(-1).details);
     assert.equal(suppressedState.hostVisualState.backgroundImage, 'none');
     assert.equal(suppressedState.blurVisualState.tag, 'shreddit-blurred-container');
+    assert.equal(suppressedState.lastResolvedNativeImage.imageConnected, true);
+    assert.equal(suppressedState.lastResolvedNativeImage.sourceMatches, true);
     context.performance.getEntriesByName = () => [{ startTime: 200, duration: 150, responseEnd: 350,
         requestStart: 80, responseStart: 100, transferSize: 1024, decodedBodySize: 800, initiatorType: 'img' }];
     subject.handleNativeImageEvent({ type: 'load', target: image });
@@ -561,12 +564,17 @@ async function checkRecoveryControls(reporter) {
     recentOverlay.appendChild(new Element('button'));
     recentHost.appendChild(recentOverlay); recentHost.dataset.tmOverlayBuilt = '1';
     subject.refreshRecoveryControl(recentHost, recentBlur);
-    assert.equal(recentHost.querySelector(':scope > .tm-nsfw-overlay'), null,
-        'a recently resolved image suppresses a stale recovery control through a brief DOM swap');
-    const recentSuppression = JSON.parse(reporter.entries.filter(entry =>
-        entry.event === 'fallback-recovery-control-suppressed' && entry.details.includes('native-image-recently-resolved')).at(-1).details);
-    assert.equal(recentSuppression.nativeOwner, null);
-    assert.equal(recentSuppression.recentNativeImageResolution.src, 'https://preview.redd.it/recently-resolved.jpg');
+    assert.equal(recentHost.querySelector(':scope > .tm-nsfw-overlay'), recentOverlay,
+        'a detached prior image does not suppress recovery through a time-based grace');
+    const detachedState = JSON.parse(reporter.entries.filter(entry =>
+        entry.event === 'fallback-recovery-control').at(-1).details);
+    assert.equal(detachedState.lastResolvedNativeImage.src, 'https://preview.redd.it/recently-resolved.jpg');
+    assert.equal(detachedState.lastResolvedNativeImage.imageConnected, false,
+        'failed-recovery diagnostics retain whether Reddit detached the last usable image');
+    assert.equal(detachedState.lastResolvedNativeImage.imageInHost, false);
+    assert.equal(subject.describeLastNativeImageResolution(recentHost, context.location.href).imageId,
+        detachedState.lastResolvedNativeImage.imageId,
+        'the same compact image observation is available to timer and control traces');
     delete context.performance.getEntriesByName;
     delete context.fetch;
 }

@@ -11,7 +11,8 @@ const instrumented = source.slice(0, boundary) + `
 globalThis.subject = { fetchPostData, buildRankedVideoSources, hasNativeResolvedMedia, preloadImage, canContinueFallback,
     scheduleFallbackBuild, clearPendingFallback, getSharedLogReporter,
     extractImageMediaFromPost, selectDisplayImageSource, preloadFallbackImage, measureFallbackLayout, viewportFallback,
-    findPendingNativeImage, findNativeMediaOwner, collectFallbackBlockers, handleNativeImageEvent,
+    findPendingNativeImage, findNativeMediaOwner, collectFallbackBlockers, describeLastNativeImageResolution,
+    handleNativeImageEvent,
     fallbackTimers, createNativeImagePreloader, CONFIG };
 buildOverlay = (...args) => globalThis.buildAttempts.push(args);
 })();`;
@@ -195,10 +196,10 @@ function checkFallbackScheduling() {
     assert.equal(timers.size, 0);
 }
 
-function checkNativeResolutionGrace() {
+function checkNativeResolutionDoesNotDelayFallback() {
     timers.clear(); clockMs = 0; context.window.innerHeight = 900;
-    context.location.href = 'https://www.reddit.com/r/test/comments/native-grace/';
-    context.location.pathname = '/r/test/comments/native-grace/';
+    context.location.href = 'https://www.reddit.com/r/test/comments/native-gap/';
+    context.location.pathname = '/r/test/comments/native-gap/';
     const host = new Element();
     host.box = { left: 100, right: 420, top: 100, bottom: 340, width: 320, height: 240 };
     const blur = new Element('shreddit-blurred-container');
@@ -215,37 +216,50 @@ function checkNativeResolutionGrace() {
     const resolved = subject.findNativeMediaOwner(host, blur);
     assert.equal(resolved?.reason, 'visible-loaded-image');
     image.isConnected = false; host.children = [blur];
-    assert.ok(subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
-        'a short DOM gap after a usable native image is recognized does not immediately qualify for fallback');
+    assert.equal(subject.CONFIG.nativeResolutionGraceMs, undefined,
+        'there is no extra native-resolution grace setting');
+    assert.ok(!subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
+        'a detached prior image does not create a time-based fallback blocker');
+    const inFlightOverlay = new Element(); inFlightOverlay.parentElement = host;
+    host.children = [blur, inFlightOverlay];
+    assert.equal(subject.canContinueFallback(host, blur, inFlightOverlay), true,
+        'a detached prior image does not cancel fallback work already in progress');
     const entryStart = subject.getSharedLogReporter().entries.length;
+    const attemptCount = context.buildAttempts.length;
     subject.scheduleFallbackBuild(blur, image, context.location.href);
-    assert.equal(subject.fallbackTimers.has(host), false, 'recent native resolution prevents an automatic fallback timer');
+    assert.equal(subject.fallbackTimers.has(host), true, 'a detached image does not postpone the normal fallback timer');
     const scheduled = subject.getSharedLogReporter().entries.slice(entryStart)
         .find(entry => entry.event === 'schedule-fallback');
     const scheduleState = JSON.parse(scheduled.details);
-    assert.ok(scheduleState.blockers.includes('native-image-recently-resolved'));
-    assert.equal(scheduleState.recentNativeImageResolution.src, image.attrs.src);
-
-    advanceTo(subject.CONFIG.nativeResolutionGraceMs + 1);
-    assert.ok(!subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
-        'fallback eligibility returns after the recent-resolution grace expires');
-    subject.scheduleFallbackBuild(blur, image, context.location.href);
-    assert.equal(subject.fallbackTimers.has(host), true, 'genuinely missing media can resume fallback after the grace');
-    subject.clearPendingFallback(host);
+    assert.ok(!scheduleState.blockers.includes('native-image-recently-resolved'));
+    assert.equal(scheduleState.recentNativeImageResolution, undefined);
+    advanceTo(1199);
+    assert.equal(context.buildAttempts.length, attemptCount, 'the ordinary fallback deadline still applies');
+    advanceTo(1200);
+    assert.equal(context.buildAttempts.length, attemptCount + 1,
+        'fallback starts at its configured 1200ms deadline with no extra grace');
+    const timerState = JSON.parse(subject.getSharedLogReporter().entries
+        .filter(entry => entry.event === 'fallback-timer-fired').at(-1).details);
+    assert.equal(timerState.waitMs, 1200);
+    assert.equal(timerState.blockers.length, 0);
+    assert.equal(timerState.lastResolvedNativeImage.imageId,
+        subject.describeLastNativeImageResolution(host, context.location.href).imageId);
+    assert.equal(timerState.lastResolvedNativeImage.imageConnected, false,
+        'the timer trace retains the prior image after Reddit removes its node');
 
     image.isConnected = true; image.complete = true;
     image.naturalWidth = 750; image.naturalHeight = 1100; host.children = [blur, image];
     assert.equal(subject.findNativeMediaOwner(host, blur)?.reason, 'visible-loaded-image');
     image.complete = false; image.naturalWidth = image.naturalHeight = 0;
     subject.handleNativeImageEvent({ type: 'error', target: image });
-    assert.ok(!subject.collectFallbackBlockers(host, blur, null).includes('native-image-recently-resolved'),
-        'an error from the resolved image clears its grace immediately');
+    assert.equal(subject.describeLastNativeImageResolution(host, context.location.href).invalidationReason,
+        'native-image-error', 'an image error is retained as the reason the prior success stopped counting');
 }
 
 async function run() {
     checkFallbackScheduling();
     checkNativeImagePreloading();
-    checkNativeResolutionGrace();
+    checkNativeResolutionDoesNotDelayFallback();
     checkViewportFallback();
     const originalSrc = 'https://i.redd.it/large.jpg';
     const resolution = width => ({
@@ -522,7 +536,7 @@ function checkViewportFallback() {
     advanceTo(deadline - 1);
     assert.equal(context.buildAttempts.length, count);
     advanceTo(deadline);
-    assert.equal(context.buildAttempts.length, count + 1, 'viewport entry gets the full native grace period');
+    assert.equal(context.buildAttempts.length, count + 1, 'viewport entry gets the full fallback delay');
     subject.scheduleFallbackBuild(blur, null, context.location.href);
     host.box.top = -5000; host.box.bottom = -4460;
     advanceTo(clockMs + 1200);
